@@ -177,10 +177,13 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="mafia",
         description="Mafia — Chromium browser AIs steer (sibling to Chrime)",
+        epilog="Server is opt-in: use `mafia serve`. Bare `mafia` prints this help.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = p.add_subparsers(dest="cmd")
+    p.add_argument("--version", action="version", version=f"mafia {__version__}")
+    sub = p.add_subparsers(dest="cmd", metavar="COMMAND")
 
-    serve = sub.add_parser("serve", help="JSONL TCP server (default command)")
+    serve = sub.add_parser("serve", help="JSONL TCP server on host:port (opt-in)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=7430)
     serve.add_argument("--headed", action="store_true", help="Show Chromium window")
@@ -190,12 +193,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Playwright channel (chrome|chromium|msedge). Empty = bundled chromium",
     )
 
-    api = sub.add_parser("api", help="JSONL on stdin/stdout")
+    api = sub.add_parser("api", help="JSONL on stdin/stdout (one browser process)")
     api.add_argument("--headed", action="store_true")
     api.add_argument("--channel", default="chrome")
 
     args = p.parse_args(argv)
-    cmd = args.cmd or "serve"
+    cmd = args.cmd
+
+    # Bare `mafia` / `python -m mafia` → help. Never auto-start a server.
+    if not cmd:
+        p.print_help()
+        print(
+            "\nExamples:\n"
+            "  mafia serve              # JSONL on 127.0.0.1:7430\n"
+            "  mafia serve --headed     # show Chromium\n"
+            "  mafia api                # JSONL on stdin/stdout\n"
+            "  mafia --version\n",
+            flush=True,
+        )
+        return 0
 
     channel = getattr(args, "channel", "chrome") or None
     if channel == "":
@@ -217,9 +233,13 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "api":
         return run_stdio(browser)
 
-    host = getattr(args, "host", "127.0.0.1")
-    port = getattr(args, "port", 7430)
-    return run_server(browser, host, port)
+    if cmd == "serve":
+        host = getattr(args, "host", "127.0.0.1")
+        port = getattr(args, "port", 7430)
+        return run_server(browser, host, port)
+
+    p.print_help()
+    return 2
 
 
 if __name__ == "__main__":

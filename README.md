@@ -25,7 +25,9 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 # browsers: system Chrome via channel=chrome, or: python3 -m playwright install chromium
 
-# JSONL on 127.0.0.1:7430 (headless Chromium by default)
+# Bare `mafia` / `python -m mafia` prints help (does NOT start a server)
+mafia
+# JSONL TCP server is opt-in:
 python3 -m mafia serve
 # or: mafia serve   (if pip install -e . put scripts on PATH)
 
