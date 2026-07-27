@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head><title>pre-js shell</title></head>
+<body>
+  <h1 id="shell">pre-js shell</h1>
+  <script>
+    document.title = "post-js title";
+    document.getElementById("shell").remove();
+    const h = document.createElement("h1");
+    h.textContent = "POST-JS-MARKER rendered by javascript";
+    document.body.appendChild(h);
+    const b = document.createElement("button");
+    b.id = "grow";
+    b.textContent = "GROW";
+    b.onclick = () => {
+      const p = document.createElement("p");
+      p.textContent = "CLICK-HANDLER-RAN";
+      document.body.appendChild(p);
+    };
+    document.body.appendChild(b);
+    const a = document.createElement("a");
+    a.href = "/post-js-link";
+    a.textContent = "post-js-link";
+    document.body.appendChild(a);
+  </script>
+</body>
+</html>
