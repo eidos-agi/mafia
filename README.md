@@ -29,8 +29,11 @@ pip install -e .
 python3 -m mafia serve
 # or: mafia serve   (if pip install -e . put scripts on PATH)
 
-# See the browser (human attach)
+# See the browser (human attach) — Mafia chrome theme (tabs/toolbar/NTP)
 python3 -m mafia serve --headed
+# or: python3 scripts/demo_skin.py
+# skin: auto on headed (bundled Chromium + theme pack); MAFIA_SKIN=off to disable
+# macOS: system titlebar stays native; branding is tab strip + new-tab page
 
 # One-shot stdio
 printf '%s\n' '{"op":"ping"}' '{"op":"session_open"}' \

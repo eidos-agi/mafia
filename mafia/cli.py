@@ -15,6 +15,8 @@ import sys
 import threading
 from typing import Any, TextIO
 
+from mafia import __version__
+from mafia import skin as skin_mod
 from mafia.api import dispatch
 from mafia.browser import MafiaBrowser
 
@@ -107,9 +109,19 @@ def run_server(browser: MafiaBrowser, host: str, port: int) -> int:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((host, port))
     sock.listen(64)
-    print(f"mafia listening on {host}:{port} (JSONL, engine=chromium)", flush=True)
     print(
-        f"  headed={browser.headed}  concurrency=single-browser-thread  sessions=open-on-demand",
+        skin_mod.cli_banner(
+            host=host,
+            port=port,
+            headed=browser.headed,
+            version=__version__,
+            skin=getattr(browser, "skin", False),
+        ),
+        flush=True,
+    )
+    print(
+        f"  concurrency=single-browser-thread  sessions=open-on-demand  "
+        f"skin_ext={skin_mod.extension_dir() if getattr(browser, 'skin', False) else 'off'}",
         flush=True,
     )
 

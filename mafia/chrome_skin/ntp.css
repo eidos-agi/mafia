@@ -1,0 +1,104 @@
+:root {
+  --gold: #d4af37;
+  --gold-dim: #8a7028;
+  --ink: #070707;
+  --smoke: #c8c4b8;
+  --muted: #6e6a60;
+  --blood: #5c0a14;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--ink);
+  color: var(--smoke);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(107, 15, 26, 0.35), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 50% 110%, rgba(212, 175, 55, 0.06), transparent 50%),
+    var(--ink);
+}
+
+.grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+main {
+  position: relative;
+  text-align: center;
+  padding: 2rem;
+}
+
+.mark {
+  font-size: 2.5rem;
+  color: var(--gold);
+  text-shadow: 0 0 40px rgba(212, 175, 55, 0.35);
+  margin-bottom: 0.5rem;
+  line-height: 1;
+}
+
+h1 {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 700;
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  letter-spacing: 0.42em;
+  color: var(--gold);
+  text-indent: 0.42em;
+  text-shadow: 0 0 48px rgba(212, 175, 55, 0.25);
+}
+
+.tag {
+  margin-top: 1rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.rule {
+  width: 120px;
+  height: 1px;
+  margin: 1.75rem auto;
+  background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+}
+
+.hint {
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  color: var(--smoke);
+  opacity: 0.75;
+}
+
+.meta {
+  margin-top: 2.5rem;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  color: var(--gold-dim);
+  text-transform: uppercase;
+}
+
+.meta .dot { margin: 0 0.6rem; opacity: 0.5; }
+
+footer {
+  position: fixed;
+  bottom: 1.25rem;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+  text-transform: uppercase;
+}

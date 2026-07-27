@@ -15,6 +15,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 from mafia import learn as learn_mod
 from mafia import session_ledger
 from mafia import sessions_store
+from mafia import skin as skin_mod
 from mafia.snapshot import CLICK_JS, FIND_TEXT_JS, WALKER_JS
 
 
@@ -62,6 +63,8 @@ class MafiaBrowser:
         self.channel = channel  # system Chrome when available; else bundled chromium
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
+        # Persistent context hosts the Chrome theme extension (browser chrome skin).
+        self._persistent: BrowserContext | None = None
         self.sessions: dict[str, Session] = {}
         self._default_session: str | None = None
         self._id_counter = itertools.count(1)
@@ -76,15 +79,55 @@ class MafiaBrowser:
         self.dialog_policy = (
             os.environ.get("MAFIA_DIALOG_POLICY") or dialog_policy or "dismiss"
         ).lower()
+        self.skin = skin_mod.should_skin(headed=self.headed)
+        self._skin_profile: Path | None = None
+        self.ntp_url: str | None = None
 
     def start(self) -> None:
-        if self._browser:
+        if self._browser or self._persistent:
             return
         self._pw = sync_playwright().start()
+        self.skin = skin_mod.should_skin(headed=self.headed)
+
+        if self.skin:
+            # Persistent profile required for theme pack to paint *browser chrome*
+            # (tabs/toolbar/NTP). Bundled Chromium — system Chrome blocks packs.
+            udd = Path(
+                os.environ.get("MAFIA_SKIN_PROFILE")
+                or (Path(__file__).resolve().parents[1] / "logs" / "chrome-skin-profile")
+            )
+            udd.mkdir(parents=True, exist_ok=True)
+            self._skin_profile = udd
+            p_kwargs: dict[str, Any] = {
+                "user_data_dir": str(udd),
+                "headless": False,
+                "args": skin_mod.launch_args(headed=True),
+                "ignore_default_args": skin_mod.ignore_default_args(headed=True),
+                "accept_downloads": True,
+                "color_scheme": "dark",
+                "viewport": {"width": 1100, "height": 760},
+            }
+            try:
+                self._persistent = self._pw.chromium.launch_persistent_context(**p_kwargs)
+                self._browser = self._persistent.browser
+                self.ntp_url = skin_mod.ntp_url(udd)
+                # Drop the default blank tab clutter; sessions open their own pages
+                for pg in list(self._persistent.pages):
+                    try:
+                        pg.close()
+                    except Exception:
+                        pass
+                return
+            except Exception:
+                self._persistent = None
+                self._browser = None
+                self.skin = False
+                self.ntp_url = None
+                # fall through to plain launch
+
         launch_kwargs: dict[str, Any] = {
             "headless": not self.headed,
         }
-        # Prefer system Chrome for macOS "real browser" feel; fall back to bundled.
         try:
             if self.channel:
                 launch_kwargs["channel"] = self.channel
@@ -97,8 +140,18 @@ class MafiaBrowser:
         # Flush profiles before teardown so cookies survive process exit
         for sid in list(self.sessions):
             self.close_session(sid, persist=True)
-        if self._browser:
-            self._browser.close()
+        if self._persistent:
+            try:
+                self._persistent.close()
+            except Exception:
+                pass
+            self._persistent = None
+            self._browser = None
+        elif self._browser:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
             self._browser = None
         if self._pw:
             self._pw.stop()
@@ -123,7 +176,6 @@ class MafiaBrowser:
         label: work label for ledger + auto-save on close (agent reboot handle).
         """
         self.start()
-        assert self._browser is not None
         if len(self.sessions) >= self.max_sessions:
             raise RuntimeError(
                 f"max_sessions={self.max_sessions} reached — close a session first"
@@ -145,6 +197,7 @@ class MafiaBrowser:
 
         ctx_kwargs: dict[str, Any] = {
             "accept_downloads": True,
+            "color_scheme": "dark",
         }
         if state is not None:
             ctx_kwargs["storage_state"] = state
@@ -153,7 +206,16 @@ class MafiaBrowser:
         if user_agent:
             ctx_kwargs["user_agent"] = user_agent
 
-        ctx = self._browser.new_context(**ctx_kwargs)
+        # Prefer browser.new_context for isolation; if only persistent exists
+        # (theme host), mint pages from a new context on the same browser.
+        if self._browser is not None:
+            ctx = self._browser.new_context(**ctx_kwargs)
+        elif self._persistent is not None:
+            # rare: persistent without .browser — reuse host context (weaker isolation)
+            ctx = self._persistent
+        else:
+            raise RuntimeError("browser not started")
+
         page = ctx.new_page()
         self._wire_page(page)
         sess = Session(id=sid, context=ctx, page=page, profile=prof, label=lab)
@@ -198,7 +260,14 @@ class MafiaBrowser:
             except Exception:
                 pass
         try:
-            sess.context.close()
+            # Never close the persistent theme host context
+            if sess.context is not self._persistent:
+                sess.context.close()
+            else:
+                try:
+                    sess.page.close()
+                except Exception:
+                    pass
         except Exception:
             pass
         if self._default_session == session_id:
