@@ -1,87 +1,10 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Mafia",
-  "version": "0.3.0",
-  "description": "Mafia browser chrome",
+  "version": "0.3.1",
+  "description": "Mafia browser chrome — NTP override (theme pack is separate under theme/). MV3 for modern Chromium.",
   "chrome_url_overrides": {
     "newtab": "ntp.html"
-  },
-  "theme": {
-    "images": {
-      "theme_frame": "images/theme_frame.png",
-      "theme_toolbar": "images/theme_toolbar.png",
-      "theme_tab_background": "images/theme_tab_background.png",
-      "theme_ntp_background": "images/theme_ntp_background.png"
-    },
-    "colors": {
-      "frame": [
-        8,
-        6,
-        6
-      ],
-      "frame_inactive": [
-        18,
-        16,
-        16
-      ],
-      "toolbar": [
-        14,
-        12,
-        10
-      ],
-      "tab_text": [
-        212,
-        175,
-        55
-      ],
-      "tab_background_text": [
-        140,
-        130,
-        100
-      ],
-      "bookmark_text": [
-        212,
-        175,
-        55
-      ],
-      "ntp_background": [
-        7,
-        7,
-        7
-      ],
-      "ntp_text": [
-        200,
-        196,
-        184
-      ],
-      "ntp_link": [
-        212,
-        175,
-        55
-      ],
-      "button_background": [
-        28,
-        22,
-        14
-      ]
-    },
-    "tints": {
-      "buttons": [
-        0.09,
-        0.55,
-        0.45
-      ],
-      "frame": [
-        -1.0,
-        0.1,
-        0.1
-      ],
-      "background_tab": [
-        0.05,
-        0.4,
-        0.3
-      ]
-    }
   },
   "icons": {
     "16": "icons/icon16.png",

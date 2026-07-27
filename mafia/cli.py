@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import socket
 import sys
@@ -199,7 +200,18 @@ def main(argv: list[str] | None = None) -> int:
     channel = getattr(args, "channel", "chrome") or None
     if channel == "":
         channel = None
-    headed = bool(getattr(args, "headed", False))
+    # CLI --headed flag wins; else env; else headed default (Daniel policy: see always)
+    if getattr(args, "headed", False):
+        headed = True
+    else:
+        env_h = (os.environ.get("MAFIA_HEADED") or "").strip().lower()
+        env_hl = (os.environ.get("MAFIA_HEADLESS") or "").strip().lower()
+        if env_h in ("0", "false", "no", "off") or env_hl in ("1", "true", "yes", "on"):
+            headed = False
+        elif env_h in ("1", "true", "yes", "on"):
+            headed = True
+        else:
+            headed = True  # default headed for agent-driven use
     browser = MafiaBrowser(headed=headed, channel=channel)
 
     if cmd == "api":

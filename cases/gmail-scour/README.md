@@ -9,13 +9,18 @@ Spec lineage: chrime `cases/gmail-scour` / EID-1059 → Mafia **EID-1070**.
 ```sh
 cd ~/repos-eidos-agi/mafia
 source .venv/bin/activate
+export MAFIA_SKIN=off   # faster; better for Google login
 
-# First time — headed window; complete Google login / 2FA
-python3 scripts/run_gmail_scour.py --headed --profile gmail-work
+# First time — Chrome opens, script STOPS and waits for Enter
+# Log in / 2FA in the window, then press Enter in the terminal
+python3 scripts/run_gmail_scour.py --headed --channel chrome --profile gmail-work
 
-# Later — profile jar should skip re-login
-python3 scripts/run_gmail_scour.py --headed --profile gmail-work --skip-login-prompt
+# Later — profile jar may already be logged in
+python3 scripts/run_gmail_scour.py --headed --channel chrome --profile gmail-work --skip-login-prompt
 ```
+
+**Important:** Default is *stop for login*. Do **not** use `--skip-login-prompt` on first run.  
+While waiting, the runner does **not** reload the page (reload was killing mid-login).
 
 Or server + client:
 

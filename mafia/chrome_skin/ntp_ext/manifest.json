@@ -1,8 +1,8 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Mafia New Tab",
-  "version": "0.3.0",
-  "description": "Mafia start page",
+  "version": "0.3.1",
+  "description": "Mafia start page (MV3 — Chrome no longer loads MV2 extensions)",
   "chrome_url_overrides": {
     "newtab": "ntp.html"
   },

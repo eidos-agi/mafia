@@ -13,6 +13,7 @@ from typing import Any
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 from mafia import learn as learn_mod
+from mafia import portable_display
 from mafia import session_ledger
 from mafia import sessions_store
 from mafia import skin as skin_mod
@@ -54,7 +55,7 @@ class MafiaBrowser:
     def __init__(
         self,
         *,
-        headed: bool = False,
+        headed: bool = True,
         channel: str | None = "chrome",
         max_sessions: int | None = None,
         dialog_policy: str = "dismiss",
@@ -82,12 +83,42 @@ class MafiaBrowser:
         self.skin = skin_mod.should_skin(headed=self.headed)
         self._skin_profile: Path | None = None
         self.ntp_url: str | None = None
+        # Boot-time portable/USB-like monitor placement (see portable_display).
+        self.display_placement: portable_display.Placement | None = None
+        self._display_chrome_args: list[str] = []
+
+    def _resolve_display_args(self) -> list[str]:
+        """Suggest/store preferred monitor and return Chromium window args when headed."""
+        if not self.headed:
+            return []
+        if os.environ.get("EIDOS_DISABLE_PORTABLE_DISPLAY", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            return []
+        try:
+            placement = portable_display.resolve_for_app(
+                "mafia", persist_suggestion=True
+            )
+            print(
+                portable_display.boot_message(placement, app="mafia"),
+                flush=True,
+            )
+            self.display_placement = placement
+            if placement:
+                self._display_chrome_args = placement.chrome_args()
+                return list(self._display_chrome_args)
+        except Exception as e:
+            print(f"mafia: portable_display skipped ({e})", flush=True)
+        return []
 
     def start(self) -> None:
         if self._browser or self._persistent:
             return
         self._pw = sync_playwright().start()
         self.skin = skin_mod.should_skin(headed=self.headed)
+        display_args = self._resolve_display_args()
 
         if self.skin:
             # Persistent profile required for theme pack to paint *browser chrome*
@@ -98,15 +129,22 @@ class MafiaBrowser:
             )
             udd.mkdir(parents=True, exist_ok=True)
             self._skin_profile = udd
+            skin_args = skin_mod.launch_args(headed=True) + display_args
             p_kwargs: dict[str, Any] = {
                 "user_data_dir": str(udd),
                 "headless": False,
-                "args": skin_mod.launch_args(headed=True),
+                "args": skin_args,
                 "ignore_default_args": skin_mod.ignore_default_args(headed=True),
                 "accept_downloads": True,
                 "color_scheme": "dark",
                 "viewport": {"width": 1100, "height": 760},
             }
+            # Maximize page viewport to the filled portable/travel monitor (EID-1098).
+            if self.display_placement:
+                p_kwargs["viewport"] = {
+                    "width": max(800, self.display_placement.window_w),
+                    "height": max(600, self.display_placement.window_h),
+                }
             try:
                 self._persistent = self._pw.chromium.launch_persistent_context(**p_kwargs)
                 self._browser = self._persistent.browser
@@ -128,13 +166,18 @@ class MafiaBrowser:
         launch_kwargs: dict[str, Any] = {
             "headless": not self.headed,
         }
+        if display_args:
+            launch_kwargs["args"] = display_args
         try:
             if self.channel:
                 launch_kwargs["channel"] = self.channel
             self._browser = self._pw.chromium.launch(**launch_kwargs)
         except Exception:
             launch_kwargs.pop("channel", None)
-            self._browser = self._pw.chromium.launch(headless=not self.headed)
+            fallback: dict[str, Any] = {"headless": not self.headed}
+            if display_args:
+                fallback["args"] = display_args
+            self._browser = self._pw.chromium.launch(**fallback)
 
     def stop(self) -> None:
         # Flush profiles before teardown so cookies survive process exit
@@ -206,17 +249,41 @@ class MafiaBrowser:
         if user_agent:
             ctx_kwargs["user_agent"] = user_agent
 
-        # Prefer browser.new_context for isolation; if only persistent exists
-        # (theme host), mint pages from a new context on the same browser.
-        if self._browser is not None:
-            ctx = self._browser.new_context(**ctx_kwargs)
-        elif self._persistent is not None:
-            # rare: persistent without .browser — reuse host context (weaker isolation)
+        # Skin host (persistent profile) owns theme + NTP extension (EID-1099).
+        # browser.new_context() is extension-less "incognito" and was silently
+        # killing the Mafia chrome/NTP skin while still showing a window.
+        # Use persistent pages when we have no separate storage_state/profile jar
+        # that requires isolation; otherwise fall back to isolated contexts.
+        use_skin_host = (
+            self._persistent is not None
+            and state is None
+            and not prof
+            and user_agent is None
+        )
+
+        if use_skin_host:
             ctx = self._persistent
+            assert ctx is not None
+            page = ctx.new_page()
+            if viewport:
+                try:
+                    page.set_viewport_size(
+                        {
+                            "width": int(viewport.get("width", 1280)),
+                            "height": int(viewport.get("height", 800)),
+                        }
+                    )
+                except Exception:
+                    pass
+        elif self._browser is not None:
+            ctx = self._browser.new_context(**ctx_kwargs)
+            page = ctx.new_page()
+        elif self._persistent is not None:
+            ctx = self._persistent
+            page = ctx.new_page()
         else:
             raise RuntimeError("browser not started")
 
-        page = ctx.new_page()
         self._wire_page(page)
         sess = Session(id=sid, context=ctx, page=page, profile=prof, label=lab)
         self.sessions[sid] = sess
@@ -857,14 +924,25 @@ class MafiaBrowser:
 
     def read(self, session_id: str | None = None) -> dict[str, Any]:
         sess = self.get(session_id)
-        text = sess.page.inner_text("body")
-        return {
-            "ok": True,
-            "text": text,
-            "chars": len(text),
-            "session": sess.id,
-            "engine": "chromium",
-        }
+        try:
+            text = sess.page.inner_text("body", timeout=15_000)
+            return {
+                "ok": True,
+                "text": text,
+                "chars": len(text),
+                "session": sess.id,
+                "engine": "chromium",
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": str(e),
+                "code": "read_failed",
+                "text": "",
+                "chars": 0,
+                "session": sess.id,
+                "engine": "chromium",
+            }
 
     def find_text(self, q: str, session_id: str | None = None) -> list[dict[str, Any]]:
         sess = self.get(session_id)

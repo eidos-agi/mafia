@@ -49,28 +49,46 @@ def should_skin(*, headed: bool) -> bool:
 
 
 def launch_args(*, headed: bool) -> list[str]:
-    """Load theme pack + NTP extension (comma-separated for Chromium)."""
+    """Load theme pack + NTP extension (comma-separated for Chromium).
+
+    EID-1099: NTP override must be Manifest V3 — modern Chromium rejects MV2
+    extensions with a modal. Theme packs stay theme-only (MV2 theme key is still
+    accepted as a skin pack, not a code extension).
+    """
     if not should_skin(headed=headed):
         return []
     packs: list[str] = []
+    # Theme first (browser chrome colors/images) — pure theme, no JS.
     if (theme_dir() / "manifest.json").is_file():
         packs.append(str(theme_dir().resolve()))
+    # NTP override — MV3 extension (chrome_url_overrides.newtab).
     if (ntp_ext_dir() / "manifest.json").is_file():
         packs.append(str(ntp_ext_dir().resolve()))
     if not packs:
-        # fall back to flat chrome_skin/
+        # Fall back to flat chrome_skin/ only if it is an MV3 NTP pack (not MV2).
         flat = extension_dir()
-        if (flat / "manifest.json").is_file():
-            packs.append(str(flat.resolve()))
+        man = flat / "manifest.json"
+        if man.is_file():
+            try:
+                data = json.loads(man.read_text(encoding="utf-8"))
+                if int(data.get("manifest_version") or 0) >= 3:
+                    packs.append(str(flat.resolve()))
+            except Exception:
+                pass
     if not packs:
         return ["--force-dark-mode"]
     joined = ",".join(packs)
     return [
         f"--disable-extensions-except={joined}",
         f"--load-extension={joined}",
+        # Chromium 137+ can ignore --load-extension unless this is disabled.
+        "--disable-features=DisableLoadExtensionCommandLineSwitch",
         "--force-dark-mode",
         "--disable-default-apps",
         "--no-first-run",
+        "--disable-component-extensions-with-background-pages",
+        # Don't pop modal alerts for extension install noise (MV2 used to).
+        "--noerrdialogs",
     ]
 
 

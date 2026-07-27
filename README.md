@@ -32,8 +32,17 @@ python3 -m mafia serve
 # See the browser (human attach) — Mafia chrome theme (tabs/toolbar/NTP)
 python3 -m mafia serve --headed
 # or: python3 scripts/demo_skin.py
-# skin: auto on headed (bundled Chromium + theme pack); MAFIA_SKIN=off to disable
+# skin: auto on headed (bundled Chromium + theme pack + MV3 NTP); MAFIA_SKIN=off to disable
 # macOS: system titlebar stays native; branding is tab strip + new-tab page
+# EID-1099: NTP pack is Manifest V3 (MV2 is rejected by modern Chromium with a modal)
+
+# Portable / USB-like monitor (headed boot)
+# If ~/eidos/mafia/settings.json has no preferred_display, Mafia suggests a
+# travel-class external (EDID diagonal ~12.5–18.5", not ultrawide), saves it,
+# and opens Chromium on that screen. Brand-agnostic; soft USB-C boost.
+# python3 -m mafia.portable_display list
+# python3 -m mafia.portable_display resolve --app mafia --json
+# EIDOS_DISABLE_PORTABLE_DISPLAY=1 to skip; MAFIA_DISPLAY=<name|id> to force.
 
 # One-shot stdio
 printf '%s\n' '{"op":"ping"}' '{"op":"session_open"}' \

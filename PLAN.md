@@ -4,7 +4,8 @@
 **Sibling:** [eidos-agi/chrime](https://github.com/eidos-agi/chrime)  
 **Linear:** project **[Mafia](https://linear.app/eidos-agi/project/mafia)** (Eidos AGI team)  
 **Telos:** `TELOS.md`  
-**HEAD:** see `git log -1` — continuity stack + node-id/concurrency hard fixes  
+**HEAD:** see `git log -1` — continuity + suite/fleet + skin + Gmail runner  
+**Reconcile note (2026-07-27):** chat vs software audited — Gmail speed claim unproven; login-wait fixes committed with this tree.  
 **Status board:** §8 Linear mapping (source of execution IDs)
 
 ---
@@ -143,6 +144,7 @@ Linear milestone *M1 — Agent API hardened*
 | M1.6 Breadcrumbs | [EID-1080](https://linear.app/eidos-agi/issue/EID-1080) | Backlog | Optional `_trace` hierarchy |
 | M1.7 API suite ≥30 | [EID-1066](https://linear.app/eidos-agi/issue/EID-1066) | **Done** | run_api_suite.py 45 checks; dispatch + TCP modes |
 | M1.8 Headed attach | [EID-1067](https://linear.app/eidos-agi/issue/EID-1067) | Backlog | `--headed` stable with API |
+| M1.8b Portable monitor | [EID-1097](https://linear.app/eidos-agi/issue/EID-1097) | **Done** | headed boot suggests travel-class display; `~/eidos/mafia/settings.json` |
 
 **Exit:** suite green; forms + SPA headless and headed.
 
@@ -174,10 +176,10 @@ Linear milestone *M3 — SPA acceptance (Gmail-class)*
 | Work | Linear | Status | Done when |
 |------|--------|--------|-----------|
 | M3.1 Complex app fixture | [EID-1083](https://linear.app/eidos-agi/issue/EID-1083) | Backlog | Multi-route SPA + auth wall fixture |
-| M3.2–M3.4 Gmail scour | [EID-1070](https://linear.app/eidos-agi/issue/EID-1070) | Backlog | 6 themes; human login; report JSON; zero coords |
-| M3.5 Zero coordinate rule | (in EID-1070) | Backlog | Suite forbids pixel/xy |
+| M3.2–M3.4 Gmail scour | [EID-1070](https://linear.app/eidos-agi/issue/EID-1070) | **Partial** | Runner shipped (`scripts/run_gmail_scour.py` + timing + profile + signal-file login wait). **Not green:** last run `auth=blocked_human_auth`, hits 0/6 — needs successful human login once. Speed vs Chrime **unproven**. |
+| M3.5 Zero coordinate rule | (in EID-1070) | Partial | Runner uses only Mafia semantic ops (no xy) |
 
-**Exit:** `scripts/run_gmail_scour.py` on Mafia; human only for auth.
+**Exit:** green report ≥5/6 themes with timing; human only for auth. **Not met yet.**
 
 ---
 
@@ -286,18 +288,14 @@ Agents can own WS-A/B-polish/D/E. Human-in-loop for WS-C (Gmail auth).
 
 ## 7. Suggested execution order (next)
 
-**Shipped hard fixes (Claude-P check)**
-1. Node-id unification — EID-1092 / smoke_node_ids  
-2. Serve concurrency — EID-1085 / smoke_serve_n10  
-3. Unknown session no silent open; jar 0600; settle quiescent honesty; hancock `go` flag; URL scrub in ledger  
+**Already shipped (do not re-plan as greenfield)**  
+M0/M0.5, node-ids (1092), serve queue (1085), wait/settle (1063–1064), suite (1066), fleet N=10 (1071), max_sessions (1088), CI yaml (1073), continuity stack (1068/1076/1078/1079), chrome skin pack, Gmail **runner** (1070 partial).
 
-**Immediate (high leverage)**
-1. [EID-1066](https://linear.app/eidos-agi/issue/EID-1066) M1.7 suite ≥30 **via TCP** + login-wall / hidden-input cases  
-2. [EID-1064](https://linear.app/eidos-agi/issue/EID-1064) M1.4 wait op  
-3. [EID-1063](https://linear.app/eidos-agi/issue/EID-1063) settle selector wait  
-4. [EID-1073](https://linear.app/eidos-agi/issue/EID-1073) CI: all smokes including node_ids + serve_n10  
-5. Walker capability for roles/iframes (gate Gmail)  
-6. [EID-1070](https://linear.app/eidos-agi/issue/EID-1070) Gmail scour (human auth)  
+**Immediate**
+1. [EID-1070](https://linear.app/eidos-agi/issue/EID-1070) — **one successful human Gmail login** then re-run with profile; publish timing (speed claim only after this)  
+2. Walker: iframes + shadow DOM (Gmail toolbar still incomplete without it)  
+3. [EID-1074](https://linear.app/eidos-agi/issue/EID-1074) Chrime boundary docs  
+4. Fleet N=50 / N=100 or dated gap (1086/1072)  
 
 ---
 
@@ -313,13 +311,13 @@ Agents can own WS-A/B-polish/D/E. Human-in-loop for WS-C (Gmail auth).
 |-----------|--------|
 | M0 Foundation | EID-1061 ✅ |
 | M0.5 Autonomy | EID-1077 ✅ |
-| M1 API | EID-1062, 1063~, **1092 ✅**, 1064, 1065~, 1066, 1067, 1075, 1080 |
-| M2 Continuity | EID-1068 ✅, 1076 ✅, 1069~, 1081, 1082~, 1078 ✅, 1079 ✅ |
-| M3 Gmail-class | EID-1083, 1070 |
-| M4 Fleet | EID-1084, **1085 ✅**, 1071~, 1086, 1072, 1087~, 1088 |
-| M5 Product | EID-1089, 1090, 1073, 1074, 1091 |
+| M1 API | EID-1062, **1063 ✅**, **1092 ✅**, **1064 ✅**, **1065 ✅**, **1066 ✅**, 1067, 1075, 1080, 1097 ✅ |
+| M2 Continuity | EID-1068 ✅, 1076 ✅, 1069~, 1081~, 1082~, 1078 ✅, 1079 ✅ |
+| M3 Gmail-class | EID-1083, **1070 ~** (runner only), 1093 ✅ ARIA |
+| M4 Fleet | EID-1084, **1085 ✅**, **1071 ✅**, 1086, 1072, 1087~, **1088 ✅** |
+| M5 Product | EID-1089, 1090, **1073 ✅**, 1074, 1091 |
 
-`~` = partial
+`~` = partial / runner-not-green
 
 ### Done checklist (do not re-implement)
 
@@ -333,6 +331,11 @@ Agents can own WS-A/B-polish/D/E. Human-in-loop for WS-C (Gmail auth).
 | EID-1079 | Site learning | 0477fd1 + smoke_learn |
 | EID-1092 | Node-id unification | smoke_node_ids + login-wall |
 | EID-1085 | Serve single-thread queue | smoke_serve_n10 |
+| EID-1063–1066 | settle/wait/fill/suite | 0aceffa |
+| EID-1071 / 1088 / 1073 | fleet N=10, max_sessions, CI | 0aceffa |
+| EID-1093 | ARIA role walker | 0aceffa |
+| (skin) | Chrome theme + NTP | 131679c |
+| EID-1070 | Gmail runner only | 48594e4 + login-wait fix — **auth not green** |
 
 ### Agent continuity stack (product requirement — shipped)
 
@@ -357,4 +360,7 @@ python3 scripts/smoke_node_ids.py  # find_text≡click with hidden inputs
 python3 scripts/smoke_serve_n10.py # public TCP API N=10
 python3 scripts/run_api_suite.py   # ≥30 / 45 checks
 MAFIA_FLEET_N=10 python3 scripts/fleet_smoke.py
+# Gmail (human login once; not green until auth passes):
+#   MAFIA_SKIN=on python3 scripts/run_gmail_scour.py --headed --channel '' --profile gmail-work
+#   touch logs/gmail-login-done   # after inbox visible
 ```

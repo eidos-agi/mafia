@@ -223,12 +223,24 @@ def search_url(query: str) -> str:
 
 
 def read_page(client: MafiaClient) -> str:
-    """Mafia: settle + read body text (real Chromium post-JS)."""
-    client.call({"op": "settle", "quiet_ms": 400})
-    # wait briefly for Gmail SPA chrome
-    client.call({"op": "wait", "ms": 800})
-    r = client.call({"op": "read"})
-    return str(r.get("text") or "") if r.get("ok") else ""
+    """Mafia: short settle + read body text (real Chromium post-JS).
+
+    Never raises — closed window / flaky SPA returns empty string.
+    """
+    try:
+        client.call({"op": "settle", "quiet_ms": 200})
+        client.call({"op": "wait", "ms": 400})
+        r = client.call({"op": "read"})
+        if not r.get("ok"):
+            return ""
+        return str(r.get("text") or "")
+    except Exception as e:
+        print(f"  (read_page soft-fail: {type(e).__name__}: {e})", flush=True)
+        return ""
+
+
+def _login_signal_path() -> Path:
+    return ROOT / "logs" / "gmail-login-done"
 
 
 def wait_for_inbox(
@@ -237,50 +249,140 @@ def wait_for_inbox(
     prompt: bool,
     timing: Timing,
 ) -> tuple[str, str]:
-    t_auth = time.perf_counter()
-    if prompt:
-        print(
-            "\n=== HUMAN STEP ===\n"
-            "Log into Gmail in the headed Mafia/Chromium window.\n"
-            "Password / 2FA / CAPTCHA as needed.\n"
-            "When you see Inbox/Primary, return here and press Enter.\n",
-            flush=True,
-        )
-        try:
-            input("Press Enter after login (or wait for auto-detect)… ")
-        except EOFError:
-            pass
+    """Wait for human login without thrashing the page.
 
-    deadline = time.time() + timeout
+    Critical: do **not** re-navigate every poll — that kills mid-login / 2FA.
+    Navigate once, then only read until inbox, Enter, or signal file.
+    """
+    t_auth = time.perf_counter()
     last = ""
-    n = 0
+    signal = _login_signal_path()
+    try:
+        if signal.is_file():
+            signal.unlink()
+    except OSError:
+        pass
+
+    # Land once — leave the window alone for the human
+    # Prefer real mail app URL (not marketing workspace.google.com)
+    for url in (
+        "https://mail.google.com/mail/u/0/#inbox",
+        "https://mail.google.com/",
+    ):
+        nav = client.call({"op": "navigate", "url": url})
+        if nav.get("ok"):
+            break
+    client.call({"op": "settle", "quiet_ms": 500})
+    last = read_page(client)
+
+    if text_looks_inbox(last) and not text_looks_login(last):
+        timing.phase("auth", t_auth)
+        print("Already in inbox — no login needed.", flush=True)
+        return "passed", last
+
     print(
-        "Waiting for inbox in the headed Chrome window…\n"
-        "  → Complete Google login / 2FA there if you see a sign-in wall.\n"
-        f"  → Auto-detect timeout: {timeout}s\n",
+        "\n"
+        "╔══════════════════════════════════════════════════════════════╗\n"
+        "║  STOP — YOUR TURN                                            ║\n"
+        "║  1. Log into Gmail in the Chrome window (password / 2FA).    ║\n"
+        "║  2. When you see Inbox / Primary, signal done:               ║\n"
+        "║       touch ~/repos-eidos-agi/mafia/logs/gmail-login-done    ║\n"
+        "║     or press Enter in this terminal (if interactive).        ║\n"
+        "║  Window is NOT reloaded while you log in.                    ║\n"
+        "╚══════════════════════════════════════════════════════════════╝\n",
         flush=True,
     )
+
+    deadline = time.time() + timeout
+    n = 0
+    enter_pressed = False
+
+    # Non-blocking Enter if TTY; otherwise signal-file / auto-detect only
+    import select
+
+    has_tty = False
+    try:
+        has_tty = sys.stdin.isatty()
+    except Exception:
+        has_tty = False
+
+    if prompt and has_tty:
+        print(">>> Press Enter AFTER inbox is visible (or create signal file)…", flush=True)
+    elif prompt:
+        print(
+            f"(no TTY — use signal file or wait for auto-detect; timeout {timeout}s)\n"
+            f"  touch {signal}",
+            flush=True,
+        )
+
     while time.time() < deadline:
         n += 1
-        client.call({"op": "navigate", "url": "https://mail.google.com/mail/u/0/#inbox"})
+        # Signal file from human / another terminal
+        if signal.is_file():
+            print("Signal file seen — checking inbox…", flush=True)
+            try:
+                signal.unlink()
+            except OSError:
+                pass
+            last = read_page(client)
+            if text_looks_inbox(last) and not text_looks_login(last):
+                timing.phase("auth", t_auth)
+                print("Auth OK (signal file).", flush=True)
+                return "passed", last
+            client.call({"op": "navigate", "url": "https://mail.google.com/mail/u/0/#inbox"})
+            last = read_page(client)
+            if text_looks_inbox(last) and not text_looks_login(last):
+                timing.phase("auth", t_auth)
+                print("Auth OK (signal + inbox nav).", flush=True)
+                return "passed", last
+            print("Still not inbox after signal — keep logging in…", flush=True)
+
+        # Enter key if interactive TTY
+        if prompt and has_tty and not enter_pressed:
+            try:
+                r, _, _ = select.select([sys.stdin], [], [], 0)
+                if r:
+                    sys.stdin.readline()
+                    enter_pressed = True
+                    print("Enter received — checking inbox…", flush=True)
+                    last = read_page(client)
+                    if text_looks_inbox(last) and not text_looks_login(last):
+                        timing.phase("auth", t_auth)
+                        print("Auth OK (Enter).", flush=True)
+                        return "passed", last
+                    client.call(
+                        {"op": "navigate", "url": "https://mail.google.com/mail/u/0/#inbox"}
+                    )
+                    last = read_page(client)
+                    if text_looks_inbox(last) and not text_looks_login(last):
+                        timing.phase("auth", t_auth)
+                        print("Auth OK (Enter + inbox nav).", flush=True)
+                        return "passed", last
+                    print("Still not inbox after Enter — keep logging in…", flush=True)
+            except Exception:
+                pass
+
+        # Soft poll: read only
         last = read_page(client)
         state = (
             "login_wall"
             if text_looks_login(last)
             else ("inbox" if text_looks_inbox(last) else f"other({len(last)} chars)")
         )
-        if n == 1 or n % 3 == 0:
+        if n == 1 or n % 5 == 0:
             print(f"  auth poll #{n}: {state}", flush=True)
         if text_looks_inbox(last) and not text_looks_login(last):
             timing.phase("auth", t_auth)
+            print("Auth OK (auto-detect).", flush=True)
             return "passed", last
-        if text_looks_login(last):
-            time.sleep(2.0)
-            continue
-        if text_looks_inbox(last):
-            timing.phase("auth", t_auth)
-            return "passed", last
-        time.sleep(2.0)
+
+        st = client.call({"op": "status"})
+        url = str(st.get("url") or "")
+        # Only re-nav if we left Google entirely (never during accounts.google.com 2FA)
+        if url and "google." not in url and "gmail" not in url.lower():
+            client.call({"op": "navigate", "url": "https://mail.google.com/mail/u/0/#inbox"})
+        time.sleep(3.0)
+
     timing.phase("auth", t_auth)
     if text_looks_login(last):
         return "blocked_human_auth", last
@@ -386,9 +488,19 @@ def run(args: argparse.Namespace) -> int:
             from mafia.browser import MafiaBrowser
 
             channel = args.channel if args.channel != "" else None
-            # Prefer real Chrome, no theme pack — Google is less hostile; skin slows cold start
-            os.environ.setdefault("MAFIA_SKIN", "off")
+            # Skin: respect MAFIA_SKIN env (on|off|auto). Headed+auto → theme pack on
+            # bundled Chromium. Use --channel chrome + MAFIA_SKIN=off for system Chrome.
+            print(
+                f"boot: headed={args.headed} channel={channel!r} "
+                f"MAFIA_SKIN={os.environ.get('MAFIA_SKIN', 'auto')!r}",
+                flush=True,
+            )
             browser = MafiaBrowser(headed=args.headed, channel=channel)
+            print(
+                f"browser ready: skin={getattr(browser, 'skin', None)} "
+                f"persistent={getattr(browser, '_persistent', None) is not None}",
+                flush=True,
+            )
             client = MafiaClient(make_local_call(browser))
             report["notes"].append(
                 f"in-process headed={args.headed} skin={getattr(browser, 'skin', None)} channel={channel!r}"
@@ -504,7 +616,11 @@ def main() -> int:
     ap.add_argument("--login-timeout", type=int, default=300)
     ap.add_argument("--search-wait-ms", type=int, default=2500)
     ap.add_argument("--socket-timeout", type=float, default=60.0)
-    ap.add_argument("--skip-login-prompt", action="store_true")
+    ap.add_argument(
+        "--skip-login-prompt",
+        action="store_true",
+        help="Do not wait for Enter (soft-poll only). Default waits for you to finish login.",
+    )
     ap.add_argument("--min-hits", type=int, default=5, help="Pass bar (default ≥5 of 6; full is 6)")
     ap.add_argument("--report", default="logs/gmail-scour-report.json")
     args = ap.parse_args()

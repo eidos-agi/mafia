@@ -1,0 +1,70 @@
+asmp: "0.1"
+kind: service
+name: mafia
+description: >
+  Real Chromium browser control plane for agents (Fraude family sibling of Chrime).
+  JSONL API: sessions, navigate, settle, snapshot (post-JS), click by node-id,
+  Knox fill, Hancock sign-off, durable session saves.
+version: 0.1.0
+created_by: agent://grok/asmp-heal
+owner: daniel
+section: tools
+
+capabilities:
+  provides:
+    - browser.chromium
+    - browser.agent.steer
+    - browser.snapshot
+    - browser.session.durable
+    - agent.browser.runtime
+  owns:
+    - browser.chromium.agent
+  supports:
+    - secrets.knox.fill
+    - approval.hancock
+  requires:
+    - process.local
+  aliases:
+    - real-browser-agent
+    - agent-chromium
+  positive_examples:
+    - "drive a real browser for an agent"
+    - "open headed Chromium and snapshot the DOM"
+    - "mafia serve / mafia api JSONL"
+  negative_examples:
+    - "light DOM-only agent browser without Chromium (that's chrime)"
+    - "human Chrome debugging only"
+  anti_routes:
+    - chrime
+    - chrome-devtools-only
+
+runtime:
+  style: daemon
+  exec: mafia serve
+  command: mafia serve --host 127.0.0.1 --port 7430
+  cwd: ~/repos-eidos-agi/mafia
+
+endpoints:
+  - protocol: tcp
+    host: 127.0.0.1
+    port: 7430
+    visibility: loopback
+    note: JSONL line protocol (one op per line)
+
+health:
+  method: tcp
+  target: 127.0.0.1:7430
+  interval: 30s
+  timeout: 5s
+
+infra:
+  repo: ~/repos-eidos-agi/mafia
+  cli: mafia
+  default_port: 7430
+  sibling: chrime
+  family: fraude
+
+display:
+  icon: theater
+  label: Mafia
+  section: tools
