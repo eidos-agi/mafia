@@ -21,37 +21,51 @@ Same *op vocabulary ideas* where it maps. **Different engine of record.** Never 
 - Do not block agent API on a GUI event loop
 - Do not mark SPA green via static HTML
 - Do not use CDP as the *public* product API (internal adapter OK)
+- Do not ship “Playwright with a logo” without **Knox + Hancock** — autonomy stack is load-bearing
+
+**V1 product thesis (locked)**  
+Mafia V1 = **tight wrapper around Chromium** for AI steering, differentiated by:
+1. Agent-native browser ops (sessions, settle, node-ids)  
+2. **Knox** — password manager integration (browser-fill, no secret echo)  
+3. **Hancock** — permission/request engine (no fake approval)  
+
+Without 2+3, agents cannot log in or take consequential actions safely → **not steerable to true autonomy.**
 
 ---
 
 ## 1. Architecture (target)
 
 ```
-                    ┌─────────────────────────────────────┐
-  Agent clients ───►│  JSONL control plane (:7430)         │
-  (N concurrent)    │  session_id on every mutating op     │
-                    └─────────────────┬───────────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-        Session s001            Session s002            Session s100
-        BrowserContext          BrowserContext          BrowserContext
-        Page = engine of        Page = engine of        …
-        record (Chromium)       record
-              │
-              └── optional: headed window attach (human login/watch)
+  Agent clients
+       │
+       ▼
+  ┌────────────────────────────────────────────┐
+  │  Mafia control plane (JSONL :7430)           │
+  │  • browser ops (session, nav, DOM, click)  │
+  │  • knox_*  (secrets → page, never JSON)    │
+  │  • hancock_* (human sign before go)        │
+  └───────────────┬───────────────┬────────────┘
+                  │               │
+         ┌────────▼──────┐  ┌─────▼──────┐
+         │ Chromium pool │  │ Knox CLI/  │
+         │ (Playwright   │  │ lib +      │
+         │  adapter)     │  │ Hancock    │
+         │ sessions…     │  │ CLI        │
+         └───────────────┘  └────────────┘
 ```
 
 **Rules**
 1. **One engine of record per session** = that session’s Chromium page/document.
 2. **Agent I/O never requires a human window.** Headed is attach, not identity.
-3. **Sync JSONL over worker threads** talking to Playwright sync API (or async loop dedicated to browser) — **not** winit/UI-thread blocking.
+3. **Knox/Hancock are first-class ops**, not afterthoughts.
 4. **Snapshot/click** always evaluate **in that page** (post-JS).
 5. **Isolation** = BrowserContext (cookies, storage) per session.
+6. Chromium/Playwright is **substrate**; public product is Mafia ops + autonomy stack.
 
-**Current v0.1 (done)**
+**Current v0.1–0.2**
 - Playwright + system Chrome / bundled Chromium
-- `session_open/list/close`, navigate, settle, snapshot, read, find_text, query, links, click, eval, back/forward
+- session_*, navigate, settle, snapshot, read, find_text, query, links, click, eval, fill, press
+- knox_find / knox_fill / knox_use(dry-run); hancock_request / wait / pending
 - SPA smoke green (`scripts/smoke_spa.py`)
 - TCP serve + stdio api
 
@@ -71,6 +85,20 @@ Same *op vocabulary ideas* where it maps. **Different engine of record.** Never 
 
 ---
 
+### M0.5 — Autonomy stack (Knox + Hancock) — **priority**
+Without this, Mafia cannot be steered for real logins / gated actions.
+
+| Work | Done when |
+|------|-----------|
+| M0.5.1 knox_find | Metadata only; secret_output suppressed |
+| M0.5.2 knox_fill | Unlock via Knox → fill into Chromium page; password never in JSON |
+| M0.5.3 knox_use dry-run | Prove match without secret |
+| M0.5.4 hancock_request/wait/pending | STILL_PENDING ≠ go; wait exit 0 only on approval |
+| M0.5.5 Optional gate | knox_fill with require_hancock blocks until signed |
+| M0.5.6 Docs | README autonomy section; policy text |
+
+**Exit:** agent script can knox_find + (with Touch ID) knox_fill into a form page; hancock_request returns id and does not invent approval.
+
 ### M1 — Agent API hardened (next)
 Make the control plane trustworthy for daily agent use.
 
@@ -80,7 +108,7 @@ Make the control plane trustworthy for daily agent use.
 | M1.2 Typed errors | All errors `{ok:false, code, error}` consistently |
 | M1.3 Settle quality | Settle returns real signals (load + networkidle + optional selector); not sleep-only |
 | M1.4 Wait helpers | `wait` for text/selector/url/timeout |
-| M1.5 Fill / type / press | Form ops on live document (no secret echo) |
+| M1.5 Fill / type / press | Form ops on live document (no secret echo) — **partial via knox_fill path** |
 | M1.6 Breadcrumbs | Optional `_trace` hierarchy (Chrime-compatible or `MAFIA.*`) |
 | M1.7 API suite | ≥30 plain-English cases against real Chromium (not static) |
 | M1.8 Headed attach | `--headed` stable; API still works while window open |

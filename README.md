@@ -3,11 +3,17 @@
 > 🎭 Fraude family sibling of **[Chrime](https://github.com/eidos-agi/chrime)**.  
 > Chrime = light agent document API. **Mafia = real Chromium browser AIs steer.**
 
-**A real browser runtime for agents.** One engine of record per session (Chromium). JS runs.
-Cookies stick. SPA is the point. Optional headed window. JSONL API so agents steer without
-pixels as the primary path.
+**A real browser runtime for agents** — Chromium underneath, **Mafia control plane** on top.
 
-Not dual-brain. Not StaticEngine theater. Not CDP-as-the-product — **your ops**, Chromium underneath.
+Not “rebuild Blink.” Not bare Playwright/agent-browser. The product is **tight steering**:
+
+1. **Browser** — sessions, settle, snapshot (post-JS), click by node-id  
+2. **Knox** — passwords into the page; secrets never in agent JSON  
+3. **Hancock** — human must sign before consequential actions  
+
+Without Knox + Hancock, agents cannot safely log in or take irreversible steps → not autonomous.
+
+SPA works (real Chromium). Optional headed attach. JSONL on `:7430`.
 
 ## Run
 
@@ -46,7 +52,21 @@ Every line is one op. Multi-session: pass `"session":"<id>"` (default = last ope
 | `click` | click by node_id (real JS click) |
 | `eval` | run JS, return JSON result |
 | `back` / `forward` | history |
+| `fill` / `type` / `press` | forms |
+| `knox_find` / `knox_fill` / `knox_use` | credentials (secret_output suppressed) |
+| `hancock_request` / `hancock_wait` / `hancock_pending` | human sign-off; STILL_PENDING ≠ go |
 | `quit` | shut down browser + server |
+
+### Autonomy (load-bearing)
+
+```json
+{"op":"knox_find","query":"github.com"}
+{"op":"knox_fill","query":"github.com","fields":"both"}
+{"op":"knox_fill","query":"bank","fields":"password","require_hancock":true,"why":"Pay invoice","wait":false}
+{"op":"hancock_wait","id":"req_…"}
+```
+
+Only proceed on Hancock when outcome is `APPROVED_AND_RAN` / `AUTO_APPROVED_AND_RAN` (or `hancock wait` exit 0).
 
 Drive a running server:
 

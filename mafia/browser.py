@@ -222,3 +222,52 @@ class MafiaBrowser:
             "url": sess.page.url if sess else None,
             "title": sess.page.title() if sess else None,
         }
+
+    def fill(
+        self,
+        *,
+        text: str,
+        selector: str | None = None,
+        which: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Fill a form field. `text` must not be logged by API layer as a secret path."""
+        sess = self.get(session_id)
+        sel = selector
+        if not sel:
+            w = (which or "login").lower()
+            if w in ("login", "user", "username", "email"):
+                sel = (
+                    'input[type="email"], input[name*="user" i], input[name*="email" i], '
+                    'input[id*="user" i], input[id*="email" i], input[type="text"]'
+                )
+            elif w in ("password", "pass"):
+                sel = 'input[type="password"]'
+            else:
+                sel = which  # treat as CSS
+        try:
+            loc = sess.page.locator(sel).first
+            loc.fill(text, timeout=10_000)
+            return {
+                "ok": True,
+                "action": "fill",
+                "which": which or selector,
+                "session": sess.id,
+                "secret_output": "suppressed",
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "action": "fill",
+                "error": str(e),
+                "session": sess.id,
+                "secret_output": "suppressed",
+            }
+
+    def press(self, key: str = "Enter", session_id: str | None = None) -> dict[str, Any]:
+        sess = self.get(session_id)
+        try:
+            sess.page.keyboard.press(key)
+            return {"ok": True, "key": key, "session": sess.id}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "session": sess.id}

@@ -2,11 +2,20 @@
 
 ## Philosophy
 
-**Mafia is a real Chromium browser built so AIs can steer it — including many sessions at once.**
+**Mafia is a real Chromium browser wrapped for AI steering** — not a Playwright tutorial,
+not agent-browser with a new name.
 
-Sibling of Chrime: Chrime stays the light agent document surface. Mafia is the heavy that
-runs the real web (SPA, cookies, Gmail-class work). One engine of record per session. Agent
-API primary. Human may attach a headed window; humans are not the control path.
+Sibling of **Chrime** (light document API). Mafia is the heavy path: SPA, cookies, real apps,
+many sessions. Chromium is the engine; **Mafia is the control plane** — agent-native ops
+**plus** the autonomy stack that makes steering possible on the real web:
+
+1. **Browser control** — navigate / settle / snapshot / click(node_id) on a real document  
+2. **Knox** — credentials without secrets in agent transcripts  
+3. **Hancock** — human sign-off before consequential actions  
+
+Without (2) and (3), agents cannot safely log in or take irreversible actions → **not
+autonomous, just automated clicking.** V1 deliberately uses Chromium as substrate (wrapper);
+tightness comes from integration and policy, not from reimplementing Blink.
 
 ## Invariants
 
@@ -26,9 +35,20 @@ case: click by node_id completes without mouse coordinates.
 must: Multiple isolated sessions (contexts) concurrently.
 case: open 2 sessions; cookies/state do not leak.
 
+### knox-autonomy
+must: Agents can find/fill credentials into the session document without secrets appearing in
+API responses or logs; Touch ID remains Knox's unlock boundary.
+case: knox_find returns metadata only (secret_output suppressed); knox_fill injects into page
+without password in JSON.
+
+### hancock-autonomy
+must: Consequential actions can require Hancock; STILL_PENDING is not approval; only
+APPROVED_AND_RAN / AUTO_APPROVED_AND_RAN (or wait exit 0) is go.
+case: hancock_request returns id; wait does not invent approval; denied/pending blocks knox_fill when gated.
+
 ### api-complete-control
-must: Steer via JSONL alone.
-case: multi-op script without human clicks.
+must: Steer via JSONL alone (browser + knox + hancock ops).
+case: multi-op script without human clicks on the page (human may only sign Hancock / Touch ID).
 
 ## Requirements
 

@@ -6,6 +6,8 @@ import json
 from typing import Any
 
 from mafia import __version__
+from mafia import hancock as hancock_mod
+from mafia import knox as knox_mod
 from mafia.browser import MafiaBrowser
 
 OPS = [
@@ -25,9 +27,18 @@ OPS = [
     "query",
     "links",
     "click",
+    "fill",
+    "type",
+    "press",
     "eval",
     "back",
     "forward",
+    "knox_find",
+    "knox_fill",
+    "knox_use",
+    "hancock_request",
+    "hancock_wait",
+    "hancock_pending",
     "quit",
 ]
 
@@ -168,6 +179,159 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
 
     if op == "forward":
         return browser.forward(sid), False
+
+    if op in ("fill", "type"):
+        text = v.get("text") or v.get("value") or ""
+        which = v.get("which") or v.get("field") or v.get("selector")
+        selector = v.get("selector") if v.get("which") or v.get("field") else None
+        if v.get("selector") and not v.get("which"):
+            selector = v.get("selector")
+            which = None
+        return (
+            browser.fill(
+                text=text,
+                selector=selector if isinstance(selector, str) else None,
+                which=str(which) if which else "login",
+                session_id=sid,
+            ),
+            False,
+        )
+
+    if op == "press":
+        return browser.press(v.get("key") or "Enter", sid), False
+
+    # ---- Knox (secrets never in response) ----
+    if op == "knox_find":
+        q = v.get("query") or ""
+        if not q:
+            # default from current session URL
+            try:
+                st = browser.status(sid)
+                q = knox_mod.query_from_url(st.get("url"))
+            except Exception:
+                q = ""
+        limit = int(v.get("limit") or 10)
+        return knox_mod.find(q, limit=limit), False
+
+    if op == "knox_fill":
+        q = v.get("query") or ""
+        if not q:
+            try:
+                st = browser.status(sid)
+                q = knox_mod.query_from_url(st.get("url"))
+            except Exception:
+                q = ""
+        fields = (v.get("fields") or v.get("field") or "both").lower()
+        # Optional Hancock gate when risk is high
+        if v.get("hancock") or v.get("require_hancock"):
+            hr = hancock_mod.request(
+                "knox_fill",
+                v.get("why") or f"Fill credentials for {q}",
+                risk=v.get("risk") or "high",
+                wait=bool(v.get("wait")),
+                detail={"query": q, "fields": fields},
+            )
+            if hr.get("outcome") not in (
+                "APPROVED_AND_RAN",
+                "AUTO_APPROVED_AND_RAN",
+            ):
+                return {
+                    **hr,
+                    "ok": False,
+                    "blocked": True,
+                    "english": hr.get("english")
+                    or "Hancock did not approve — not filling credentials.",
+                    "secret_output": "suppressed",
+                }, False
+
+        want_login = fields in ("login", "both", "user", "username", "email", "")
+        want_password = fields in ("password", "both", "pass", "")
+        done = []
+        record = None
+        if want_login:
+            title, value, err = knox_mod.unlock_field(q, "login")
+            if err and not want_password:
+                return {
+                    "ok": False,
+                    "error": err,
+                    "secret_output": "suppressed",
+                }, False
+            if value is not None:
+                r = browser.fill(text=value, which="login", session_id=sid)
+                # drop value
+                value = None  # noqa: F841
+                if not r.get("ok"):
+                    return {
+                        "ok": False,
+                        "error": r.get("error"),
+                        "record": title,
+                        "secret_output": "suppressed",
+                    }, False
+                record = title
+                done.append("login")
+        if want_password:
+            title, value, err = knox_mod.unlock_field(q, "password")
+            if err:
+                return {
+                    "ok": False,
+                    "error": err,
+                    "record": record or title,
+                    "secret_output": "suppressed",
+                }, False
+            if value is not None:
+                r = browser.fill(text=value, which="password", session_id=sid)
+                value = None
+                if not r.get("ok"):
+                    return {
+                        "ok": False,
+                        "error": r.get("error"),
+                        "record": title,
+                        "secret_output": "suppressed",
+                    }, False
+                record = title or record
+                done.append("password")
+        return {
+            "ok": bool(done),
+            "action": "knox_fill",
+            "record": record,
+            "field": "+".join(done) if done else None,
+            "error": None if done else "nothing filled",
+            "secret_output": "suppressed",
+            "session": sid or browser._default_session,
+        }, False
+
+    if op == "knox_use":
+        q = v.get("query") or ""
+        field = v.get("field") or "password"
+        via = v.get("via") or "dry-run"
+        if via in ("dry-run", "dry_run"):
+            return knox_mod.dry_run_use(q, field), False
+        return {
+            "ok": False,
+            "error": "knox_use on Mafia prefers knox_fill into the page; use via=dry-run or knox_fill",
+            "secret_output": "suppressed",
+        }, False
+
+    # ---- Hancock (human sign-off) ----
+    if op == "hancock_request":
+        return (
+            hancock_mod.request(
+                v.get("action") or "navigate",
+                v.get("why") or "Mafia agent request",
+                risk=v.get("risk") or "high",
+                wait=bool(v.get("wait")),
+                timeout=int(v.get("timeout") or 600),
+                detail=v.get("detail") if isinstance(v.get("detail"), dict) else None,
+            ),
+            False,
+        )
+
+    if op == "hancock_wait":
+        hid = v.get("id") or v.get("hancock_id") or ""
+        return hancock_mod.wait_for(hid, timeout=int(v.get("timeout") or 600)), False
+
+    if op == "hancock_pending":
+        return hancock_mod.pending(), False
 
     if op == "quit":
         browser.stop()
