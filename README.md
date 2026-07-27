@@ -18,14 +18,16 @@ pip install -e .
 # browsers: system Chrome via channel=chrome, or: python3 -m playwright install chromium
 
 # JSONL on 127.0.0.1:7430 (headless Chromium by default)
-mafia serve
+python3 -m mafia serve
+# or: mafia serve   (if pip install -e . put scripts on PATH)
 
 # See the browser (human attach)
-mafia serve --headed
+python3 -m mafia serve --headed
 
 # One-shot stdio
 printf '%s\n' '{"op":"ping"}' '{"op":"session_open"}' \
-  '{"op":"navigate","url":"https://example.com"}' '{"op":"snapshot"}' | mafia api
+  '{"op":"navigate","url":"https://example.com"}' '{"op":"snapshot"}' \
+  | python3 -m mafia api
 ```
 
 ## Agent API (JSONL)
