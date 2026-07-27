@@ -12,10 +12,17 @@ many sessions. Chromium is the engine; **Mafia is the control plane** — agent-
 1. **Browser control** — navigate / settle / snapshot / click(node_id) on a real document  
 2. **Knox** — credentials without secrets in agent transcripts  
 3. **Hancock** — human sign-off before consequential actions  
+4. **Session durability** — reloadable saves + profiles (cookies/URL survive process death)  
+5. **Usage ledger + reboot** — every use tracked; agent can reboot prior work  
+6. **Site learning** — landmarks/recipes so the next surf is easier  
 
 Without (2) and (3), agents cannot safely log in or take irreversible actions → **not
-autonomous, just automated clicking.** V1 deliberately uses Chromium as substrate (wrapper);
-tightness comes from integration and policy, not from reimplementing Blink.
+autonomous, just automated clicking.** Without (4)–(6), every run is cold start → **not
+compounding.** V1 deliberately uses Chromium as substrate (wrapper); tightness comes from
+integration and policy, not from reimplementing Blink.
+
+**Plan / Linear:** `PLAN.md` is narrative source of truth; project **Mafia** on Linear is
+the execution board (see PLAN §8).
 
 ## Invariants
 
