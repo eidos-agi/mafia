@@ -63,6 +63,51 @@ def _iso(ts: float | None = None) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts or _now()))
 
 
+def _scrub_url(url: str | None) -> str | None:
+    """Strip OAuth/token query fragments from URLs before logging."""
+    if not url or not isinstance(url, str):
+        return url
+    import re
+    from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+    try:
+        p = urlparse(url)
+    except Exception:
+        return url[:200] + "…" if len(url) > 200 else url
+    # fragment often holds #access_token=
+    frag = p.fragment or ""
+    if any(x in frag.lower() for x in ("token", "access_", "id_token", "code=")):
+        frag = "[redacted]"
+    q = parse_qs(p.query, keep_blank_values=True)
+    dirty = (
+        "code",
+        "token",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "client_secret",
+        "password",
+        "session_state",
+    )
+    changed = False
+    for k in list(q.keys()):
+        if k.lower() in dirty or "token" in k.lower() or "secret" in k.lower():
+            q[k] = ["[redacted]"]
+            changed = True
+    query = urlencode({k: v[0] if len(v) == 1 else v for k, v in q.items()}, doseq=True) if q else ""
+    if changed or frag == "[redacted]":
+        return urlunparse((p.scheme, p.netloc, p.path, p.params, query, frag))
+    # still drop bare secrets in path-ish strings
+    if re.search(r"(access_token|refresh_token|id_token)=", url, re.I):
+        return re.sub(
+            r"(access_token|refresh_token|id_token|code)=[^&\s#]+",
+            r"\1=[redacted]",
+            url,
+            flags=re.I,
+        )
+    return url
+
+
 def _scrub(obj: Any, *, depth: int = 0) -> Any:
     if depth > 4:
         return "…"
@@ -72,6 +117,8 @@ def _scrub(obj: Any, *, depth: int = 0) -> Any:
             lk = str(k).lower()
             if lk in _SECRET_KEYS or "password" in lk or "secret" in lk:
                 out[k] = "[suppressed]"
+            elif lk in ("url", "href", "restored_url") and isinstance(v, str):
+                out[k] = _scrub_url(v)
             elif lk in ("nodes", "matches", "links", "text") and isinstance(v, (list, str)):
                 if isinstance(v, list):
                     out[k] = f"[{len(v)} items]"
@@ -258,6 +305,7 @@ def record_op(
     key = work or work_key(profile=prof, save=sav, label=lab, session_id=sid)
 
     thin = op in _THIN_OPS
+    raw_url = url or resp.get("url") or req.get("url")
     event: dict[str, Any] = {
         "op": op,
         "ok": ok,
@@ -266,7 +314,7 @@ def record_op(
         "profile": prof,
         "save": sav,
         "label": lab,
-        "url": url or resp.get("url") or req.get("url"),
+        "url": _scrub_url(raw_url) if isinstance(raw_url, str) else raw_url,
         "title": title or resp.get("title"),
         "ms": ms,
     }

@@ -519,11 +519,19 @@ class MafiaBrowser:
         }
 
     def get(self, session_id: str | None = None) -> Session:
-        sid = session_id or self._default_session
-        if not sid or sid not in self.sessions:
-            # Auto-open first session for ergonomics
-            return self.open_session()
-        return self.sessions[sid]
+        """Resolve session.
+
+        - No id + no default → auto-open (first call ergonomics).
+        - Explicit unknown id → error (never silently open a blank context).
+        """
+        if session_id is not None and str(session_id).strip():
+            sid = str(session_id).strip()
+            if sid not in self.sessions:
+                raise KeyError(f"unknown session: {sid}")
+            return self.sessions[sid]
+        if self._default_session and self._default_session in self.sessions:
+            return self.sessions[self._default_session]
+        return self.open_session()
 
     def navigate(self, url: str, session_id: str | None = None) -> dict[str, Any]:
         sess = self.get(session_id)
@@ -563,16 +571,19 @@ class MafiaBrowser:
         try:
             sess.page.wait_for_load_state("networkidle", timeout=10_000)
             reason = "networkidle"
+            quiescent = True
         except Exception:
             sess.page.wait_for_timeout(quiet_ms)
             reason = "quiet_ms"
+            # quiet_ms is a fallback sleep — not network-quiescent
+            quiescent = False
         ms = int((time.time() - t0) * 1000)
         return {
             "ok": True,
             "engine": "chromium",
             "session": sess.id,
             "ms": ms,
-            "quiescent": True,
+            "quiescent": quiescent,
             "reason": reason,
             "url": sess.page.url,
             "spins": 0,
@@ -808,7 +819,11 @@ class MafiaBrowser:
         return {"ok": True, "url": sess.page.url, "session": sess.id}
 
     def status(self, session_id: str | None = None) -> dict[str, Any]:
-        sess = self.get(session_id) if self.sessions or session_id else None
+        sess = None
+        if session_id is not None and str(session_id).strip():
+            sess = self.get(session_id)  # raises if unknown
+        elif self._default_session and self._default_session in self.sessions:
+            sess = self.sessions[self._default_session]
         return {
             "ok": True,
             "engine": "chromium",

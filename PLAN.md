@@ -4,7 +4,7 @@
 **Sibling:** [eidos-agi/chrime](https://github.com/eidos-agi/chrime)  
 **Linear:** project **[Mafia](https://linear.app/eidos-agi/project/mafia)** (Eidos AGI team)  
 **Telos:** `TELOS.md`  
-**HEAD (2026-07-26):** `0477fd1` — site learning  
+**HEAD:** see `git log -1` — continuity stack + node-id/concurrency hard fixes  
 **Status board:** §8 Linear mapping (source of execution IDs)
 
 ---
@@ -136,7 +136,8 @@ Linear milestone *M1 — Agent API hardened*
 |------|--------|--------|-----------|
 | M1.1 Op parity map vs Chrime | [EID-1062](https://linear.app/eidos-agi/issue/EID-1062) | Backlog | Doc: 1:1 / Pro-only / never |
 | M1.2 Typed errors | [EID-1075](https://linear.app/eidos-agi/issue/EID-1075) | Backlog | All failures `{ok:false, code, error}` + suite |
-| M1.3 Settle quality | [EID-1063](https://linear.app/eidos-agi/issue/EID-1063) | **Partial** | networkidle/quiet already; optional selector wait + suite |
+| M1.3 Settle quality | [EID-1063](https://linear.app/eidos-agi/issue/EID-1063) | **Partial** | networkidle/quiet; `quiescent:false` on quiet_ms fallback; selector wait still open |
+| M1.3b Node-id space | [EID-1092](https://linear.app/eidos-agi/issue/EID-1092) | **Done** | shared walk; find_text≡snapshot; smoke_node_ids + login-wall fixture |
 | M1.4 Wait helpers | [EID-1064](https://linear.app/eidos-agi/issue/EID-1064) | Backlog | wait text/selector/url/timeout |
 | M1.5 Fill / type / press | [EID-1065](https://linear.app/eidos-agi/issue/EID-1065) | **Partial** | Ops exist + knox_fill; need suite + node_id fill |
 | M1.6 Breadcrumbs | [EID-1080](https://linear.app/eidos-agi/issue/EID-1080) | Backlog | Optional `_trace` hierarchy |
@@ -186,8 +187,8 @@ Linear milestone *M4 — Fleet path (~100)*
 | Work | Linear | Status | Done when |
 |------|--------|--------|-----------|
 | M4.1 Session address model | [EID-1084](https://linear.app/eidos-agi/issue/EID-1084) | Backlog | Every op session-scoped; no global page footguns |
-| M4.2 Concurrency model | [EID-1085](https://linear.app/eidos-agi/issue/EID-1085) | Backlog | Doc: threads vs async; pick one |
-| M4.3 Fleet smoke N=10 | [EID-1071](https://linear.app/eidos-agi/issue/EID-1071) | Backlog | 10 sessions; distinct URLs; no cookie leak |
+| M4.2 Concurrency model | [EID-1085](https://linear.app/eidos-agi/issue/EID-1085) | **Done** | Locked: single browser worker thread + op queue; client threads = sockets only; smoke_serve_n10 |
+| M4.3 Fleet smoke N=10 | [EID-1071](https://linear.app/eidos-agi/issue/EID-1071) | **Partial** | TCP N=10 green (`smoke_serve_n10`); in-process multi-session still via smoke_spa |
 | M4.4 Fleet smoke N=50 | [EID-1086](https://linear.app/eidos-agi/issue/EID-1086) | Backlog | Memory budget; no crash |
 | M4.5 Fleet smoke N=100 | [EID-1072](https://linear.app/eidos-agi/issue/EID-1072) | Backlog | Green or dated budget+gap |
 | M4.6 Kill/restart session | [EID-1087](https://linear.app/eidos-agi/issue/EID-1087) | **Partial** | close works; formalize + suite |
@@ -247,10 +248,12 @@ Agents can own WS-A/B-polish/D/E. Human-in-loop for WS-C (Gmail auth).
 | Continuity | saves + profiles + ledger + learn | Compounding autonomy |
 | Port default | 7430 | Chrime keeps 7420 |
 
-**Open decisions (pick when hitting M4)**
-- One browser many contexts vs process-per-N-sessions
-- Async Playwright loop vs sync + thread pool
+**Open decisions**
+- One browser many contexts vs process-per-N-sessions (still open at N=100)
 - Whether to expose raw CDP as escape hatch (default: no)
+
+**Locked (M4.2)**  
+- Sync Playwright + **one worker thread** owning the browser; TCP clients enqueue ops. Never multi-thread Playwright.
 
 ---
 
@@ -283,17 +286,18 @@ Agents can own WS-A/B-polish/D/E. Human-in-loop for WS-C (Gmail auth).
 
 ## 7. Suggested execution order (next)
 
-**Immediate (high leverage)**
-1. [EID-1066](https://linear.app/eidos-agi/issue/EID-1066) M1.7 suite ≥30 (includes sessions/ledger/learn cases)  
-2. [EID-1064](https://linear.app/eidos-agi/issue/EID-1064) M1.4 wait op  
-3. [EID-1063](https://linear.app/eidos-agi/issue/EID-1063) M1.3 settle selector wait  
-4. [EID-1073](https://linear.app/eidos-agi/issue/EID-1073) M5.3 CI all smokes  
-5. [EID-1074](https://linear.app/eidos-agi/issue/EID-1074) WS-F Chrime boundary  
+**Shipped hard fixes (Claude-P check)**
+1. Node-id unification — EID-1092 / smoke_node_ids  
+2. Serve concurrency — EID-1085 / smoke_serve_n10  
+3. Unknown session no silent open; jar 0600; settle quiescent honesty; hancock `go` flag; URL scrub in ledger  
 
-**Then**
-1. [EID-1071](https://linear.app/eidos-agi/issue/EID-1071) fleet N=10  
-2. [EID-1070](https://linear.app/eidos-agi/issue/EID-1070) Gmail scour (human auth)  
-3. M2 polish: [EID-1069](https://linear.app/eidos-agi/issue/EID-1069) viewport, [EID-1081](https://linear.app/eidos-agi/issue/EID-1081) dialogs  
+**Immediate (high leverage)**
+1. [EID-1066](https://linear.app/eidos-agi/issue/EID-1066) M1.7 suite ≥30 **via TCP** + login-wall / hidden-input cases  
+2. [EID-1064](https://linear.app/eidos-agi/issue/EID-1064) M1.4 wait op  
+3. [EID-1063](https://linear.app/eidos-agi/issue/EID-1063) settle selector wait  
+4. [EID-1073](https://linear.app/eidos-agi/issue/EID-1073) CI: all smokes including node_ids + serve_n10  
+5. Walker capability for roles/iframes (gate Gmail)  
+6. [EID-1070](https://linear.app/eidos-agi/issue/EID-1070) Gmail scour (human auth)  
 
 ---
 
@@ -309,10 +313,10 @@ Agents can own WS-A/B-polish/D/E. Human-in-loop for WS-C (Gmail auth).
 |-----------|--------|
 | M0 Foundation | EID-1061 ✅ |
 | M0.5 Autonomy | EID-1077 ✅ |
-| M1 API | EID-1062, 1063~, 1064, 1065~, 1066, 1067, 1075, 1080 |
+| M1 API | EID-1062, 1063~, **1092 ✅**, 1064, 1065~, 1066, 1067, 1075, 1080 |
 | M2 Continuity | EID-1068 ✅, 1076 ✅, 1069~, 1081, 1082~, 1078 ✅, 1079 ✅ |
 | M3 Gmail-class | EID-1083, 1070 |
-| M4 Fleet | EID-1084, 1085, 1071, 1086, 1072, 1087~, 1088 |
+| M4 Fleet | EID-1084, **1085 ✅**, 1071~, 1086, 1072, 1087~, 1088 |
 | M5 Product | EID-1089, 1090, 1073, 1074, 1091 |
 
 `~` = partial
@@ -327,6 +331,8 @@ Agents can own WS-A/B-polish/D/E. Human-in-loop for WS-C (Gmail auth).
 | EID-1076 | Session save/load | 7453b80 + smoke_sessions |
 | EID-1078 | Ledger + reboot | 18573d8 + smoke_ledger |
 | EID-1079 | Site learning | 0477fd1 + smoke_learn |
+| EID-1092 | Node-id unification | smoke_node_ids + login-wall |
+| EID-1085 | Serve single-thread queue | smoke_serve_n10 |
 
 ### Agent continuity stack (product requirement — shipped)
 
@@ -347,4 +353,6 @@ python3 scripts/smoke_spa.py       # SPA + multi-session
 python3 scripts/smoke_sessions.py  # save/load + profiles
 python3 scripts/smoke_ledger.py    # history + reboot
 python3 scripts/smoke_learn.py     # landmarks + learn_use
+python3 scripts/smoke_node_ids.py  # find_text≡click with hidden inputs
+python3 scripts/smoke_serve_n10.py # public TCP API N=10
 ```

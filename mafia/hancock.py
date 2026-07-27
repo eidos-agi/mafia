@@ -83,15 +83,19 @@ def request(
         # still may have queued
         pass
 
+    # Queued ≠ approved. `ok` means request was submitted; `go` is the only green light.
     result: dict[str, Any] = {
         "ok": True,
+        "go": False,
+        "approved": False,
         "action": "hancock_request",
         "outcome": outcome,
         "hancock_id": hid,
         "risk": risk,
         "mafia_action": action,
         "english": f"Queued Hancock request for `{action}` (risk={risk}). "
-        f"STILL_PENDING is NOT approval. Use hancock_wait.",
+        f"STILL_PENDING / QUEUED is NOT approval. Only go=true after APPROVED_AND_RAN. "
+        f"Use hancock_wait.",
         "raw_tail": raw[-600:],
         "secret_output": "suppressed",
     }
@@ -101,6 +105,13 @@ def request(
         result.update(w)
         result["action"] = "hancock_request"
         result["hancock_id"] = hid
+        oc = result.get("outcome") or ""
+        if oc in ("APPROVED_AND_RAN", "AUTO_APPROVED_AND_RAN"):
+            result["go"] = True
+            result["approved"] = True
+        else:
+            result["go"] = False
+            result["approved"] = False
     return result
 
 

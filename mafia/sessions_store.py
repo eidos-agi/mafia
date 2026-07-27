@@ -67,9 +67,17 @@ def write_bundle(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     dir_path.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(dir_path, 0o700)
+    except OSError:
+        pass
     state_path = dir_path / "storage_state.json"
     meta_path = dir_path / "meta.json"
     state_path.write_text(json.dumps(storage_state, indent=2), encoding="utf-8")
+    try:
+        os.chmod(state_path, 0o600)
+    except OSError:
+        pass
     meta: dict[str, Any] = {
         "name": dir_path.name,
         "url": url,
@@ -83,6 +91,10 @@ def write_bundle(
     if extra:
         meta["extra"] = extra
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    try:
+        os.chmod(meta_path, 0o600)
+    except OSError:
+        pass
     return {
         "ok": True,
         "path": str(dir_path),

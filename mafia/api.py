@@ -75,7 +75,13 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
 
     op = (v.get("op") or "").strip()
     t0 = time.time()
-    resp, should_quit = _dispatch_body(browser, v, op)
+    try:
+        resp, should_quit = _dispatch_body(browser, v, op)
+    except KeyError as e:
+        # Explicit unknown session id — never silent open (M4.1 footgun)
+        resp, should_quit = _err("unknown_session", str(e)), False
+    except ValueError as e:
+        resp, should_quit = _err("bad_args", str(e)), False
     ms = int((time.time() - t0) * 1000)
 
     # Bump live session op counter

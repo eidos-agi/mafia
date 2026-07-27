@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><title>login wall</title></head>
+<body>
+  <!-- Hidden inputs shift node_ids if find_text and walker diverge -->
+  <input type="hidden" name="csrf" value="secret-csrf-token" />
+  <input type="hidden" name="form_id" value="login-form-1" />
+  <h1>Account</h1>
+  <button id="login">Log in</button>
+  <button id="delete">Delete account</button>
+  <script>
+    document.getElementById("login").onclick = () => {
+      const p = document.createElement("p");
+      p.id = "result";
+      p.textContent = "LOGIN-CLICKED";
+      document.body.appendChild(p);
+    };
+    document.getElementById("delete").onclick = () => {
+      const p = document.createElement("p");
+      p.id = "result";
+      p.textContent = "DELETE-CLICKED";
+      document.body.appendChild(p);
+    };
+  </script>
+</body>
+</html>
