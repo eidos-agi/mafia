@@ -6,10 +6,12 @@ import itertools
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
+from mafia import sessions_store
 from mafia.snapshot import CLICK_JS, FIND_TEXT_JS, WALKER_JS
 
 
@@ -19,6 +21,10 @@ class Session:
     context: BrowserContext
     page: Page
     created_at: float = field(default_factory=time.time)
+    # Named profile: auto-persist storage on close/quit
+    profile: str | None = None
+    # Last explicit save name (metadata only)
+    last_save: str | None = None
 
 
 class MafiaBrowser:
@@ -50,8 +56,9 @@ class MafiaBrowser:
             self._browser = self._pw.chromium.launch(headless=not self.headed)
 
     def stop(self) -> None:
+        # Flush profiles before teardown so cookies survive process exit
         for sid in list(self.sessions):
-            self.close_session(sid)
+            self.close_session(sid, persist=True)
         if self._browser:
             self._browser.close()
             self._browser = None
@@ -59,23 +66,70 @@ class MafiaBrowser:
             self._pw.stop()
             self._pw = None
 
-    def open_session(self, *, session_id: str | None = None) -> Session:
+    def open_session(
+        self,
+        *,
+        session_id: str | None = None,
+        profile: str | None = None,
+        storage_state: str | dict[str, Any] | Path | None = None,
+        restore_url: str | None = None,
+        viewport: dict[str, int] | None = None,
+        user_agent: str | None = None,
+    ) -> Session:
+        """Open an isolated BrowserContext.
+
+        profile: named durable jar under logs/profiles/<name> (load if present, save on close).
+        storage_state: path or dict (Playwright format) — also used by session_load.
+        restore_url: navigate after open (from save meta or caller).
+        """
         self.start()
         assert self._browser is not None
         sid = session_id or f"s{next(self._id_counter):04d}-{uuid.uuid4().hex[:6]}"
         if sid in self.sessions:
             raise ValueError(f"session exists: {sid}")
-        ctx = self._browser.new_context()
+
+        state: str | dict[str, Any] | Path | None = storage_state
+        url_from_profile: str | None = None
+        prof = (profile or "").strip() or None
+        if prof and state is None:
+            bundle = sessions_store.profile_path(prof)
+            st, meta, err = sessions_store.read_bundle(bundle)
+            if not err and st is not None:
+                state = st
+                url_from_profile = meta.get("url")
+
+        ctx_kwargs: dict[str, Any] = {}
+        if state is not None:
+            ctx_kwargs["storage_state"] = state
+        if viewport:
+            ctx_kwargs["viewport"] = viewport
+        if user_agent:
+            ctx_kwargs["user_agent"] = user_agent
+
+        ctx = self._browser.new_context(**ctx_kwargs)
         page = ctx.new_page()
-        sess = Session(id=sid, context=ctx, page=page)
+        sess = Session(id=sid, context=ctx, page=page, profile=prof)
         self.sessions[sid] = sess
         self._default_session = sid
+
+        go = restore_url or url_from_profile
+        if go:
+            try:
+                page.goto(go, wait_until="domcontentloaded", timeout=60_000)
+            except Exception:
+                # Still return session; caller sees partial restore via status/url
+                pass
         return sess
 
-    def close_session(self, session_id: str) -> bool:
+    def close_session(self, session_id: str, *, persist: bool = True) -> bool:
         sess = self.sessions.pop(session_id, None)
         if not sess:
             return False
+        if persist and sess.profile:
+            try:
+                self._persist_session(sess, sessions_store.profile_path(sess.profile))
+            except Exception:
+                pass
         try:
             sess.context.close()
         except Exception:
@@ -83,6 +137,143 @@ class MafiaBrowser:
         if self._default_session == session_id:
             self._default_session = next(iter(self.sessions), None)
         return True
+
+    def _persist_session(self, sess: Session, dir_path: Path) -> dict[str, Any]:
+        state = sess.context.storage_state()
+        try:
+            url = sess.page.url
+            title = sess.page.title()
+        except Exception:
+            url, title = None, None
+        return sessions_store.write_bundle(
+            dir_path,
+            storage_state=state,
+            url=url,
+            title=title,
+            session_id=sess.id,
+        )
+
+    def save_session(
+        self,
+        name: str,
+        session_id: str | None = None,
+        *,
+        as_profile: bool = False,
+    ) -> dict[str, Any]:
+        """Export storage_state + URL to a named save (or profile jar)."""
+        try:
+            safe = name.strip()
+            if not safe:
+                return {"ok": False, "error": "name required", "code": "bad_args"}
+        except Exception:
+            return {"ok": False, "error": "name required", "code": "bad_args"}
+        sess = self.get(session_id)
+        try:
+            if as_profile:
+                path = sessions_store.profile_path(safe)
+                kind = "profile"
+            else:
+                path = sessions_store.save_path(safe)
+                kind = "save"
+            info = self._persist_session(sess, path)
+            sess.last_save = safe if not as_profile else sess.last_save
+            if as_profile:
+                sess.profile = safe
+            return {
+                **info,
+                "ok": True,
+                "action": "session_save",
+                "kind": kind,
+                "session": sess.id,
+            }
+        except ValueError as e:
+            return {"ok": False, "error": str(e), "code": "bad_args", "session": sess.id}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "session": sess.id}
+
+    def load_session(
+        self,
+        name: str,
+        *,
+        session_id: str | None = None,
+        from_profile: bool = False,
+        restore_url: bool = True,
+    ) -> dict[str, Any]:
+        """Open a new live session from a named save or profile."""
+        try:
+            path = (
+                sessions_store.profile_path(name)
+                if from_profile
+                else sessions_store.save_path(name)
+            )
+        except ValueError as e:
+            return {"ok": False, "error": str(e), "code": "bad_args"}
+        state, meta, err = sessions_store.read_bundle(path)
+        if err or state is None:
+            return {
+                "ok": False,
+                "error": err or "empty state",
+                "code": "not_found",
+                "name": name,
+                "path": str(path),
+            }
+        url = meta.get("url") if restore_url else None
+        try:
+            sess = self.open_session(
+                session_id=session_id,
+                storage_state=state,
+                restore_url=url,
+                profile=name if from_profile else None,
+            )
+            if not from_profile:
+                sess.last_save = name
+            return {
+                "ok": True,
+                "action": "session_load",
+                "session": sess.id,
+                "name": name,
+                "kind": "profile" if from_profile else "save",
+                "url": sess.page.url,
+                "title": sess.page.title(),
+                "restored_url": url,
+                "saved_at": meta.get("saved_at"),
+                "path": str(path),
+                "session_count": len(self.sessions),
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e), "name": name}
+
+    def list_saves(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "saves": sessions_store.list_bundles(sessions_store.sessions_dir()),
+            "dir": str(sessions_store.sessions_dir()),
+        }
+
+    def list_profiles(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "profiles": sessions_store.list_bundles(sessions_store.profiles_dir()),
+            "dir": str(sessions_store.profiles_dir()),
+        }
+
+    def delete_save(self, name: str, *, profile: bool = False) -> dict[str, Any]:
+        try:
+            path = (
+                sessions_store.profile_path(name)
+                if profile
+                else sessions_store.save_path(name)
+            )
+        except ValueError as e:
+            return {"ok": False, "error": str(e), "code": "bad_args"}
+        ok = sessions_store.delete_bundle(path)
+        return {
+            "ok": ok,
+            "action": "session_delete",
+            "name": name,
+            "kind": "profile" if profile else "save",
+            "path": str(path),
+        }
 
     def get(self, session_id: str | None = None) -> Session:
         sid = session_id or self._default_session

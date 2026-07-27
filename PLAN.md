@@ -120,13 +120,13 @@ Make the control plane trustworthy for daily agent use.
 ### M2 — Session & profile durability
 | Work | Done when |
 |------|-----------|
-| M2.1 Persistent profiles | `session_open` with `profile` dir; cookies survive process restart |
-| M2.2 Session save/load | Export storage_state + URL; restore |
-| M2.3 User-agent / viewport | Per-session `viewport`, `user_agent`, `device_scale` (media queries) |
+| M2.1 Persistent profiles | ✅ `session_open` with `profile`; jar under `logs/profiles/`; cookies+URL survive restart (`scripts/smoke_sessions.py`) |
+| M2.2 Session save/load | ✅ `session_save` / `session_load` / `session_saves` / `session_delete`; storage_state + URL under `logs/sessions/` |
+| M2.3 User-agent / viewport | Partial: `viewport` + `user_agent` on `session_open`; device_scale later |
 | M2.4 Download / dialog policy | Explicit deny or capture; never block agent forever |
-| M2.5 Clean shutdown | `quit` flushes profiles; SIGTERM documented |
+| M2.5 Clean shutdown | Partial: `quit` / `stop` flushes profile jars; SIGTERM docs later |
 
-**Exit:** open session → login wall fixture → restart → still logged in (profile jar).
+**Exit (durability core):** open → set cookie → save/close or profile close → new process → load/open profile → cookie+URL restored. Login-wall fixture still nice-to-have for suite polish.
 
 ---
 

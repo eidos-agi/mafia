@@ -43,7 +43,9 @@ Every line is one op. Multi-session: pass `"session":"<id>"` (default = last ope
 | op | purpose |
 |----|---------|
 | `ping` / `help` / `status` | health |
-| `session_open` / `session_list` / `session_close` | fleet unit |
+| `session_open` / `session_list` / `session_close` | live fleet unit |
+| `session_save` / `session_load` / `session_saves` | named reloadable saves (cookies + URL) |
+| `session_profiles` / `session_delete` | durable profile jars; delete save/profile |
 | `navigate` | go (real browser) |
 | `settle` | wait for load + short network quiet |
 | `snapshot` | semantic DOM + stable node-ids (post-JS) |
@@ -56,6 +58,28 @@ Every line is one op. Multi-session: pass `"session":"<id>"` (default = last ope
 | `knox_find` / `knox_fill` / `knox_use` | credentials (secret_output suppressed) |
 | `hancock_request` / `hancock_wait` / `hancock_pending` | human sign-off; STILL_PENDING ≠ go |
 | `quit` | shut down browser + server |
+
+### Sessions you can reload (required for autonomy)
+
+Live sessions die when the process dies. **Named saves** and **profiles** put cookies + storage + URL on disk under `logs/sessions/` and `logs/profiles/` (override with `MAFIA_SESSIONS_DIR` / `MAFIA_PROFILES_DIR`). Never commit those dirs.
+
+```json
+{"op":"session_open"}
+{"op":"navigate","url":"https://example.com"}
+{"op":"session_save","name":"work-gmail"}
+{"op":"session_close","session":"s0001-…"}
+{"op":"session_load","name":"work-gmail"}
+{"op":"session_saves"}
+```
+
+**Profile jar** (auto-load on open, auto-save on close/quit):
+
+```json
+{"op":"session_open","profile":"gmail-work"}
+{"op":"navigate","url":"https://mail.google.com"}
+{"op":"session_close","session":"…"}
+{"op":"session_open","profile":"gmail-work"}
+```
 
 ### Autonomy (load-bearing)
 

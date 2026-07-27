@@ -19,6 +19,11 @@ OPS = [
     "session_open",
     "session_list",
     "session_close",
+    "session_save",
+    "session_load",
+    "session_saves",
+    "session_profiles",
+    "session_delete",
     "navigate",
     "settle",
     "snapshot",
@@ -80,18 +85,48 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
         return browser.status(sid), False
 
     if op == "session_open":
-        sess = browser.open_session(session_id=v.get("id") or v.get("name"))
+        profile = v.get("profile")
+        viewport = v.get("viewport") if isinstance(v.get("viewport"), dict) else None
+        try:
+            sess = browser.open_session(
+                session_id=v.get("id") or (None if profile else v.get("name")),
+                profile=str(profile) if profile else None,
+                restore_url=v.get("url") or v.get("restore_url"),
+                viewport=viewport,
+                user_agent=v.get("user_agent") or v.get("userAgent"),
+            )
+        except ValueError as e:
+            return _err("bad_args", str(e)), False
         return {
             "ok": True,
             "action": "session_open",
             "session": sess.id,
+            "profile": sess.profile,
+            "url": sess.page.url if sess.page else None,
             "session_count": len(browser.sessions),
         }, False
 
     if op == "session_list":
+        live = []
+        for s in browser.sessions.values():
+            try:
+                url = s.page.url
+                title = s.page.title()
+            except Exception:
+                url, title = None, None
+            live.append(
+                {
+                    "id": s.id,
+                    "profile": s.profile,
+                    "last_save": s.last_save,
+                    "url": url,
+                    "title": title,
+                }
+            )
         return {
             "ok": True,
             "sessions": list(browser.sessions.keys()),
+            "live": live,
             "default_session": browser._default_session,
         }, False
 
@@ -99,13 +134,63 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
         target = sid or v.get("id")
         if not target:
             return _err("bad_args", "session_close requires session or id"), False
-        ok = browser.close_session(target)
+        persist = v.get("persist")
+        if persist is None:
+            persist = True
+        ok = browser.close_session(target, persist=bool(persist))
         return {
             "ok": ok,
             "action": "session_close",
             "session": target,
             "session_count": len(browser.sessions),
         }, False
+
+    if op == "session_save":
+        name = v.get("name") or v.get("save") or v.get("id")
+        if not name:
+            return _err("bad_args", "session_save requires name"), False
+        as_profile = bool(v.get("as_profile") or v.get("profile") is True)
+        # allow {"op":"session_save","name":"x","profile":true} or as_profile
+        if isinstance(v.get("profile"), str) and not as_profile:
+            # save into that profile jar
+            return browser.save_session(
+                str(v.get("profile")), sid, as_profile=True
+            ), False
+        return browser.save_session(str(name), sid, as_profile=as_profile), False
+
+    if op == "session_load":
+        name = v.get("name") or v.get("save") or v.get("id")
+        if not name:
+            return _err("bad_args", "session_load requires name"), False
+        from_profile = bool(v.get("from_profile") or v.get("profile") is True)
+        if isinstance(v.get("profile"), str):
+            name = v.get("profile")
+            from_profile = True
+        restore = v.get("restore_url")
+        if restore is None:
+            restore = True
+        return browser.load_session(
+            str(name),
+            session_id=v.get("session_id") or (sid if sid and sid not in browser.sessions else None),
+            from_profile=from_profile,
+            restore_url=bool(restore),
+        ), False
+
+    if op == "session_saves":
+        return browser.list_saves(), False
+
+    if op == "session_profiles":
+        return browser.list_profiles(), False
+
+    if op == "session_delete":
+        name = v.get("name") or v.get("save") or v.get("id")
+        if not name:
+            return _err("bad_args", "session_delete requires name"), False
+        is_profile = bool(v.get("profile") is True or v.get("from_profile"))
+        if isinstance(v.get("profile"), str):
+            name = v.get("profile")
+            is_profile = True
+        return browser.delete_save(str(name), profile=is_profile), False
 
     if op == "navigate":
         url = v.get("url") or ""

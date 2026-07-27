@@ -35,6 +35,12 @@ case: click by node_id completes without mouse coordinates.
 must: Multiple isolated sessions (contexts) concurrently.
 case: open 2 sessions; cookies/state do not leak.
 
+### session-durability
+must: Sessions are easily stored and reloadable — cookies, storage, and URL survive
+process restart via named saves and profile jars (no re-login from scratch every run).
+case: set cookie → session_save → close → session_load (or profile close → new process
+→ session_open with profile) restores cookie + URL.
+
 ### knox-autonomy
 must: Agents can find/fill credentials into the session document without secrets appearing in
 API responses or logs; Touch ID remains Knox's unlock boundary.
@@ -54,6 +60,7 @@ case: multi-op script without human clicks on the page (human may only sign Hanc
 
 ### spa-snapshot — open → green when fixture case passes
 ### multi-session-api — open → green when 2 contexts isolated
+### session-durability — open → green (`scripts/smoke_sessions.py`)
 ### fleet-path — open (path to ~100 sessions)
 ### gmail-scour — open (acceptance on Mafia, not Chrime)
 
