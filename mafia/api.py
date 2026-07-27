@@ -33,6 +33,8 @@ OPS = [
     "session_reboot",
     "navigate",
     "settle",
+    "wait",
+    "viewport",
     "snapshot",
     "read",
     "find_text",
@@ -82,6 +84,10 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
         resp, should_quit = _err("unknown_session", str(e)), False
     except ValueError as e:
         resp, should_quit = _err("bad_args", str(e)), False
+    except RuntimeError as e:
+        msg = str(e)
+        code = "max_sessions" if "max_sessions" in msg else "runtime"
+        resp, should_quit = _err(code, msg), False
     ms = int((time.time() - t0) * 1000)
 
     # Bump live session op counter
@@ -310,7 +316,30 @@ def _dispatch_body(
 
     if op == "settle":
         quiet = int(v.get("quiet_ms") or 300)
-        return browser.settle(sid, quiet_ms=quiet), False
+        return browser.settle(
+            sid,
+            quiet_ms=quiet,
+            selector=v.get("selector"),
+            text=v.get("text"),
+            timeout_ms=int(v.get("timeout_ms") or v.get("timeout") or 30_000),
+        ), False
+
+    if op == "wait":
+        return browser.wait(
+            session_id=sid,
+            text=v.get("text"),
+            selector=v.get("selector") or v.get("css"),
+            url_contains=v.get("url_contains") or v.get("url"),
+            ms=int(v["ms"]) if v.get("ms") is not None else None,
+            timeout_ms=int(v.get("timeout_ms") or v.get("timeout") or 30_000),
+        ), False
+
+    if op == "viewport":
+        w = v.get("width")
+        h = v.get("height")
+        if w is None or h is None:
+            return _err("bad_args", "viewport requires width and height"), False
+        return browser.set_viewport(int(w), int(h), sid), False
 
     if op == "snapshot":
         return browser.snapshot(sid), False
@@ -382,11 +411,13 @@ def _dispatch_body(
         if v.get("selector") and not v.get("which"):
             selector = v.get("selector")
             which = None
+        node_id = v.get("node_id")
         return (
             browser.fill(
                 text=text,
                 selector=selector if isinstance(selector, str) else None,
-                which=str(which) if which else "login",
+                which=str(which) if which else ("login" if node_id is None else None),
+                node_id=int(node_id) if node_id is not None else None,
                 session_id=sid,
             ),
             False,

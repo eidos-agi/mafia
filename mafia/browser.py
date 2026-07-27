@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -49,7 +50,14 @@ class Session:
 class MafiaBrowser:
     """One Playwright browser; many isolated contexts (sessions)."""
 
-    def __init__(self, *, headed: bool = False, channel: str | None = "chrome") -> None:
+    def __init__(
+        self,
+        *,
+        headed: bool = False,
+        channel: str | None = "chrome",
+        max_sessions: int | None = None,
+        dialog_policy: str = "dismiss",
+    ) -> None:
         self.headed = headed
         self.channel = channel  # system Chrome when available; else bundled chromium
         self._pw: Playwright | None = None
@@ -57,6 +65,17 @@ class MafiaBrowser:
         self.sessions: dict[str, Session] = {}
         self._default_session: str | None = None
         self._id_counter = itertools.count(1)
+        env_max = os.environ.get("MAFIA_MAX_SESSIONS")
+        if max_sessions is not None:
+            self.max_sessions = max_sessions
+        elif env_max and env_max.isdigit():
+            self.max_sessions = int(env_max)
+        else:
+            self.max_sessions = 50
+        # dismiss | accept | ignore
+        self.dialog_policy = (
+            os.environ.get("MAFIA_DIALOG_POLICY") or dialog_policy or "dismiss"
+        ).lower()
 
     def start(self) -> None:
         if self._browser:
@@ -105,6 +124,10 @@ class MafiaBrowser:
         """
         self.start()
         assert self._browser is not None
+        if len(self.sessions) >= self.max_sessions:
+            raise RuntimeError(
+                f"max_sessions={self.max_sessions} reached — close a session first"
+            )
         sid = session_id or f"s{next(self._id_counter):04d}-{uuid.uuid4().hex[:6]}"
         if sid in self.sessions:
             raise ValueError(f"session exists: {sid}")
@@ -120,7 +143,9 @@ class MafiaBrowser:
                 state = st
                 url_from_profile = meta.get("url")
 
-        ctx_kwargs: dict[str, Any] = {}
+        ctx_kwargs: dict[str, Any] = {
+            "accept_downloads": True,
+        }
         if state is not None:
             ctx_kwargs["storage_state"] = state
         if viewport:
@@ -130,6 +155,7 @@ class MafiaBrowser:
 
         ctx = self._browser.new_context(**ctx_kwargs)
         page = ctx.new_page()
+        self._wire_page(page)
         sess = Session(id=sid, context=ctx, page=page, profile=prof, label=lab)
         self.sessions[sid] = sess
         self._default_session = sid
@@ -142,6 +168,25 @@ class MafiaBrowser:
                 # Still return session; caller sees partial restore via status/url
                 pass
         return sess
+
+    def _wire_page(self, page: Page) -> None:
+        """Dialog policy so agents never hang forever on alert/confirm."""
+
+        def on_dialog(dialog: Any) -> None:
+            try:
+                if self.dialog_policy == "accept":
+                    dialog.accept()
+                elif self.dialog_policy == "ignore":
+                    pass
+                else:
+                    dialog.dismiss()
+            except Exception:
+                try:
+                    dialog.dismiss()
+                except Exception:
+                    pass
+
+        page.on("dialog", on_dialog)
 
     def close_session(self, session_id: str, *, persist: bool = True) -> bool:
         sess = self.sessions.pop(session_id, None)
@@ -560,23 +605,70 @@ class MafiaBrowser:
                 "engine": "chromium",
             }
 
-    def settle(self, session_id: str | None = None, quiet_ms: int = 300) -> dict[str, Any]:
-        """Wait for load + short network idle-ish pause. Real engine, not a sleep-only lie."""
+    def settle(
+        self,
+        session_id: str | None = None,
+        quiet_ms: int = 300,
+        *,
+        selector: str | None = None,
+        text: str | None = None,
+        timeout_ms: int = 30_000,
+    ) -> dict[str, Any]:
+        """Wait for load + optional selector/text. Real engine, not a sleep-only lie."""
         sess = self.get(session_id)
         t0 = time.time()
+        reason = "domcontentloaded"
+        quiescent = False
         try:
-            sess.page.wait_for_load_state("domcontentloaded", timeout=30_000)
+            sess.page.wait_for_load_state("domcontentloaded", timeout=min(30_000, timeout_ms))
         except Exception:
             pass
         try:
-            sess.page.wait_for_load_state("networkidle", timeout=10_000)
+            sess.page.wait_for_load_state("networkidle", timeout=min(10_000, timeout_ms))
             reason = "networkidle"
             quiescent = True
         except Exception:
             sess.page.wait_for_timeout(quiet_ms)
             reason = "quiet_ms"
-            # quiet_ms is a fallback sleep — not network-quiescent
             quiescent = False
+
+        if selector:
+            try:
+                sess.page.wait_for_selector(selector, timeout=timeout_ms, state="visible")
+                reason = f"selector:{selector}"
+                quiescent = True
+            except Exception as e:
+                return {
+                    "ok": False,
+                    "code": "timeout",
+                    "error": str(e),
+                    "engine": "chromium",
+                    "session": sess.id,
+                    "ms": int((time.time() - t0) * 1000),
+                    "quiescent": False,
+                    "reason": "selector_timeout",
+                    "url": sess.page.url,
+                }
+        if text:
+            try:
+                sess.page.get_by_text(text, exact=False).first.wait_for(
+                    state="visible", timeout=timeout_ms
+                )
+                reason = f"text:{text[:40]}"
+                quiescent = True
+            except Exception as e:
+                return {
+                    "ok": False,
+                    "code": "timeout",
+                    "error": str(e),
+                    "engine": "chromium",
+                    "session": sess.id,
+                    "ms": int((time.time() - t0) * 1000),
+                    "quiescent": False,
+                    "reason": "text_timeout",
+                    "url": sess.page.url,
+                }
+
         ms = int((time.time() - t0) * 1000)
         return {
             "ok": True,
@@ -588,6 +680,104 @@ class MafiaBrowser:
             "url": sess.page.url,
             "spins": 0,
         }
+
+    def wait(
+        self,
+        *,
+        session_id: str | None = None,
+        text: str | None = None,
+        selector: str | None = None,
+        url_contains: str | None = None,
+        ms: int | None = None,
+        timeout_ms: int = 30_000,
+    ) -> dict[str, Any]:
+        """Wait for text, selector, url substring, or fixed ms."""
+        sess = self.get(session_id)
+        t0 = time.time()
+        try:
+            if ms is not None:
+                sess.page.wait_for_timeout(int(ms))
+                return {
+                    "ok": True,
+                    "action": "wait",
+                    "reason": "ms",
+                    "ms": int((time.time() - t0) * 1000),
+                    "session": sess.id,
+                    "url": sess.page.url,
+                }
+            if url_contains:
+                sess.page.wait_for_url(
+                    lambda u: url_contains in str(u),
+                    timeout=timeout_ms,
+                )
+                return {
+                    "ok": True,
+                    "action": "wait",
+                    "reason": "url_contains",
+                    "url_contains": url_contains,
+                    "ms": int((time.time() - t0) * 1000),
+                    "session": sess.id,
+                    "url": sess.page.url,
+                }
+            if selector:
+                sess.page.wait_for_selector(selector, timeout=timeout_ms, state="visible")
+                return {
+                    "ok": True,
+                    "action": "wait",
+                    "reason": "selector",
+                    "selector": selector,
+                    "ms": int((time.time() - t0) * 1000),
+                    "session": sess.id,
+                    "url": sess.page.url,
+                }
+            if text:
+                sess.page.get_by_text(text, exact=False).first.wait_for(
+                    state="visible", timeout=timeout_ms
+                )
+                return {
+                    "ok": True,
+                    "action": "wait",
+                    "reason": "text",
+                    "text": text[:80],
+                    "ms": int((time.time() - t0) * 1000),
+                    "session": sess.id,
+                    "url": sess.page.url,
+                }
+            return {
+                "ok": False,
+                "code": "bad_args",
+                "error": "wait requires text, selector, url_contains, or ms",
+                "session": sess.id,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "code": "timeout",
+                "error": str(e),
+                "action": "wait",
+                "ms": int((time.time() - t0) * 1000),
+                "session": sess.id,
+                "url": sess.page.url,
+            }
+
+    def set_viewport(
+        self,
+        width: int,
+        height: int,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        sess = self.get(session_id)
+        try:
+            sess.page.set_viewport_size({"width": int(width), "height": int(height)})
+            return {
+                "ok": True,
+                "action": "viewport",
+                "width": int(width),
+                "height": int(height),
+                "session": sess.id,
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e), "session": sess.id}
 
     def snapshot(self, session_id: str | None = None) -> dict[str, Any]:
         sess = self.get(session_id)
@@ -841,23 +1031,56 @@ class MafiaBrowser:
         text: str,
         selector: str | None = None,
         which: str | None = None,
+        node_id: int | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
         """Fill a form field. `text` must not be logged by API layer as a secret path."""
         sess = self.get(session_id)
-        sel = selector
-        if not sel:
-            w = (which or "login").lower()
-            if w in ("login", "user", "username", "email"):
-                sel = (
-                    'input[type="email"], input[name*="user" i], input[name*="email" i], '
-                    'input[id*="user" i], input[id*="email" i], input[type="text"]'
-                )
-            elif w in ("password", "pass"):
-                sel = 'input[type="password"]'
-            else:
-                sel = which  # treat as CSS
         try:
+            if node_id is not None:
+                sess.page.evaluate(WALKER_JS)
+                ok = sess.page.evaluate(
+                    """([id, value]) => {
+                      const el = document.querySelector('[data-mafia-id="' + id + '"]');
+                      if (!el) return { ok: false, error: 'no node ' + id };
+                      el.focus();
+                      if ('value' in el) {
+                        el.value = value;
+                        el.dispatchEvent(new Event('input', {bubbles:true}));
+                        el.dispatchEvent(new Event('change', {bubbles:true}));
+                      } else { el.textContent = value; }
+                      return { ok: true, node_id: id, tag: el.tagName.toLowerCase() };
+                    }""",
+                    [int(node_id), text],
+                )
+                if not ok or not ok.get("ok"):
+                    return {
+                        "ok": False,
+                        "action": "fill",
+                        "error": (ok or {}).get("error") or "fill node failed",
+                        "session": sess.id,
+                        "secret_output": "suppressed",
+                    }
+                return {
+                    "ok": True,
+                    "action": "fill",
+                    "node_id": int(node_id),
+                    "session": sess.id,
+                    "secret_output": "suppressed",
+                }
+
+            sel = selector
+            if not sel:
+                w = (which or "login").lower()
+                if w in ("login", "user", "username", "email"):
+                    sel = (
+                        'input[type="email"], input[name*="user" i], input[name*="email" i], '
+                        'input[id*="user" i], input[id*="email" i], input[type="text"]'
+                    )
+                elif w in ("password", "pass"):
+                    sel = 'input[type="password"]'
+                else:
+                    sel = which  # treat as CSS
             loc = sess.page.locator(sel).first
             loc.fill(text, timeout=10_000)
             return {

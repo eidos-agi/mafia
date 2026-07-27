@@ -1,24 +1,32 @@
 """Inject a semantic DOM walker into the live page (engine of record = Chromium).
 
 One walk order, one id space. snapshot / find_text / click MUST share it.
+Includes ARIA roles (div[role=button] etc.) so Gmail-class UIs are visible.
 """
 
 from __future__ import annotations
 
 # Shared enumeration — single source of truth for data-mafia-id.
-# Hidden inputs skipped BEFORE id increment (find_text used to diverge here).
 _WALK_CORE_JS = r"""
-  const INTERESTING = new Set([
+  const TAG_INTERESTING = new Set([
     "a","button","input","textarea","select",
-    "h1","h2","h3","h4","h5","h6","p","li","label"
+    "h1","h2","h3","h4","h5","h6","p","li","label","summary"
   ]);
-  function roleOf(tag) {
+  const ROLE_INTERESTING = new Set([
+    "button","link","textbox","searchbox","checkbox","radio",
+    "menuitem","tab","option","switch","combobox","listbox",
+    "heading","img"
+  ]);
+  function roleOf(el, tag) {
+    const ar = (el.getAttribute("role") || "").toLowerCase();
+    if (ar) return ar;
     if (tag === "a") return "link";
     if (tag === "button") return "button";
     if (tag === "input" || tag === "textarea" || tag === "select") return "field";
     if (/^h[1-6]$/.test(tag)) return "heading";
     if (tag === "p" || tag === "li") return "text";
     if (tag === "label") return "label";
+    if (tag === "summary") return "button";
     return "generic";
   }
   function collapse(s) {
@@ -27,13 +35,32 @@ _WALK_CORE_JS = r"""
   function isHiddenInput(el, tag) {
     return tag === "input" && (el.type || "").toLowerCase() === "hidden";
   }
-  function isClickable(el, tag) {
-    if (tag === "a" || tag === "button") return true;
+  function isInteresting(el, tag) {
+    if (TAG_INTERESTING.has(tag)) return true;
+    const ar = (el.getAttribute("role") || "").toLowerCase();
+    if (ar && ROLE_INTERESTING.has(ar)) return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+  function isClickable(el, tag, role) {
+    if (tag === "a" || tag === "button" || tag === "summary") return true;
+    if (role === "button" || role === "link" || role === "menuitem" || role === "tab") return true;
     if (tag === "input") {
       const t = (el.type || "").toLowerCase();
-      return t === "button" || t === "submit" || t === "image";
+      return t === "button" || t === "submit" || t === "image" || t === "checkbox" || t === "radio";
     }
     return false;
+  }
+  function nodeText(el, tag) {
+    return collapse(
+      el.innerText ||
+      el.value ||
+      el.getAttribute("aria-label") ||
+      el.getAttribute("title") ||
+      el.getAttribute("placeholder") ||
+      el.getAttribute("alt") ||
+      ""
+    );
   }
   /** Walk DOM once: stamp data-mafia-id, return node list. */
   function walkAndStamp() {
@@ -42,22 +69,24 @@ _WALK_CORE_JS = r"""
     const all = document.querySelectorAll("*");
     for (const el of all) {
       const tag = el.tagName.toLowerCase();
-      if (!INTERESTING.has(tag)) continue;
+      if (!isInteresting(el, tag)) continue;
       if (isHiddenInput(el, tag)) continue;
+      // skip aria-hidden decorative
+      if ((el.getAttribute("aria-hidden") || "").toLowerCase() === "true") continue;
       id += 1;
-      const text = collapse(
-        el.innerText || el.value || el.getAttribute("aria-label") || ""
-      );
+      const role = roleOf(el, tag);
+      const text = nodeText(el, tag);
       let href = null;
       if (tag === "a" && el.href) href = el.href;
+      else if (role === "link" && el.getAttribute("href")) href = el.href || el.getAttribute("href");
       el.setAttribute("data-mafia-id", String(id));
       nodes.push({
         node_id: id,
         tag,
-        role: roleOf(tag),
+        role,
         text,
         href,
-        clickable: isClickable(el, tag),
+        clickable: isClickable(el, tag, role),
       });
     }
     return nodes;
@@ -103,7 +132,6 @@ FIND_TEXT_JS = (
     + _WALK_CORE_JS
     + r"""
   const ql = (q || "").toLowerCase();
-  // Same stamp + id space as snapshot/click
   const nodes = walkAndStamp();
   if (!ql) return nodes;
   return nodes.filter((n) => (n.text || "").toLowerCase().includes(ql));

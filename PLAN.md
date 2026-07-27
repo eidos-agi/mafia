@@ -136,12 +136,12 @@ Linear milestone *M1 — Agent API hardened*
 |------|--------|--------|-----------|
 | M1.1 Op parity map vs Chrime | [EID-1062](https://linear.app/eidos-agi/issue/EID-1062) | Backlog | Doc: 1:1 / Pro-only / never |
 | M1.2 Typed errors | [EID-1075](https://linear.app/eidos-agi/issue/EID-1075) | Backlog | All failures `{ok:false, code, error}` + suite |
-| M1.3 Settle quality | [EID-1063](https://linear.app/eidos-agi/issue/EID-1063) | **Partial** | networkidle/quiet; `quiescent:false` on quiet_ms fallback; selector wait still open |
-| M1.3b Node-id space | [EID-1092](https://linear.app/eidos-agi/issue/EID-1092) | **Done** | shared walk; find_text≡snapshot; smoke_node_ids + login-wall fixture |
-| M1.4 Wait helpers | [EID-1064](https://linear.app/eidos-agi/issue/EID-1064) | Backlog | wait text/selector/url/timeout |
-| M1.5 Fill / type / press | [EID-1065](https://linear.app/eidos-agi/issue/EID-1065) | **Partial** | Ops exist + knox_fill; need suite + node_id fill |
+| M1.3 Settle quality | [EID-1063](https://linear.app/eidos-agi/issue/EID-1063) | **Done** | networkidle/quiet; selector/text; honest quiescent; suite |
+| M1.3b Node-id space | [EID-1092](https://linear.app/eidos-agi/issue/EID-1092) | **Done** | shared walk + ARIA roles; smoke_node_ids |
+| M1.4 Wait helpers | [EID-1064](https://linear.app/eidos-agi/issue/EID-1064) | **Done** | wait text/selector/url_contains/ms + timeout code |
+| M1.5 Fill / type / press | [EID-1065](https://linear.app/eidos-agi/issue/EID-1065) | **Done** | which + selector + node_id; suite; secret suppressed |
 | M1.6 Breadcrumbs | [EID-1080](https://linear.app/eidos-agi/issue/EID-1080) | Backlog | Optional `_trace` hierarchy |
-| M1.7 API suite ≥30 | [EID-1066](https://linear.app/eidos-agi/issue/EID-1066) | Backlog | cases on real Chromium |
+| M1.7 API suite ≥30 | [EID-1066](https://linear.app/eidos-agi/issue/EID-1066) | **Done** | run_api_suite.py 45 checks; dispatch + TCP modes |
 | M1.8 Headed attach | [EID-1067](https://linear.app/eidos-agi/issue/EID-1067) | Backlog | `--headed` stable with API |
 
 **Exit:** suite green; forms + SPA headless and headed.
@@ -155,8 +155,8 @@ Linear milestone *M2 — Session & profile durability*
 |------|--------|--------|-------------------|
 | M2.1 Persistent profiles | [EID-1068](https://linear.app/eidos-agi/issue/EID-1068) | **Done** | profile jars; smoke_sessions |
 | M2.2 Session save/load | [EID-1076](https://linear.app/eidos-agi/issue/EID-1076) | **Done** | save/load/saves/delete; smoke_sessions |
-| M2.3 Viewport / UA / device_scale | [EID-1069](https://linear.app/eidos-agi/issue/EID-1069) | **Partial** | viewport+UA on open; device_scale + presets open |
-| M2.4 Download / dialog policy | [EID-1081](https://linear.app/eidos-agi/issue/EID-1081) | Backlog | Deny/capture; never hang agent |
+| M2.3 Viewport / UA / device_scale | [EID-1069](https://linear.app/eidos-agi/issue/EID-1069) | **Partial** | open + live `viewport` op; device_scale/presets open |
+| M2.4 Download / dialog policy | [EID-1081](https://linear.app/eidos-agi/issue/EID-1081) | **Partial** | dialog dismiss default (never hang); downloads accept; capture path open |
 | M2.5 Clean shutdown | [EID-1082](https://linear.app/eidos-agi/issue/EID-1082) | **Partial** | quit flushes profiles; SIGTERM docs open |
 | M2.6 Usage ledger + reboot | [EID-1078](https://linear.app/eidos-agi/issue/EID-1078) | **Done** | ledger + recent/history/reboot; smoke_ledger |
 | M2.7 Site learning | [EID-1079](https://linear.app/eidos-agi/issue/EID-1079) | **Done** | learn_*; smoke_learn |
@@ -188,11 +188,11 @@ Linear milestone *M4 — Fleet path (~100)*
 |------|--------|--------|-----------|
 | M4.1 Session address model | [EID-1084](https://linear.app/eidos-agi/issue/EID-1084) | Backlog | Every op session-scoped; no global page footguns |
 | M4.2 Concurrency model | [EID-1085](https://linear.app/eidos-agi/issue/EID-1085) | **Done** | Locked: single browser worker thread + op queue; client threads = sockets only; smoke_serve_n10 |
-| M4.3 Fleet smoke N=10 | [EID-1071](https://linear.app/eidos-agi/issue/EID-1071) | **Partial** | TCP N=10 green (`smoke_serve_n10`); in-process multi-session still via smoke_spa |
+| M4.3 Fleet smoke N=10 | [EID-1071](https://linear.app/eidos-agi/issue/EID-1071) | **Done** | fleet_smoke.py N=10 distinct URLs + cookie isolation + close-one; smoke_serve_n10 |
 | M4.4 Fleet smoke N=50 | [EID-1086](https://linear.app/eidos-agi/issue/EID-1086) | Backlog | Memory budget; no crash |
 | M4.5 Fleet smoke N=100 | [EID-1072](https://linear.app/eidos-agi/issue/EID-1072) | Backlog | Green or dated budget+gap |
 | M4.6 Kill/restart session | [EID-1087](https://linear.app/eidos-agi/issue/EID-1087) | **Partial** | close works; formalize + suite |
-| M4.7 Resource limits | [EID-1088](https://linear.app/eidos-agi/issue/EID-1088) | Backlog | max_sessions config; clear reject code |
+| M4.7 Resource limits | [EID-1088](https://linear.app/eidos-agi/issue/EID-1088) | **Done** | max_sessions (env MAFIA_MAX_SESSIONS); code max_sessions |
 
 **Exit:** N=10 always green; N=100 green or written gap.
 
@@ -205,7 +205,7 @@ Linear milestone *M5 — Productization*
 |------|--------|--------|-----------|
 | M5.1 CLI polish | [EID-1089](https://linear.app/eidos-agi/issue/EID-1089) | Backlog | `mafia` on PATH; --help; version |
 | M5.2 Install docs | [EID-1090](https://linear.app/eidos-agi/issue/EID-1090) | Backlog | Chrome channel vs bundled chromium |
-| M5.3 CI | [EID-1073](https://linear.app/eidos-agi/issue/EID-1073) | Backlog | GHA: smoke_spa + sessions + ledger + learn |
+| M5.3 CI | [EID-1073](https://linear.app/eidos-agi/issue/EID-1073) | **Done** | .github/workflows/ci.yml — smokes + suite + fleet + serve_n10 |
 | M5.4 / WS-F Chrime boundary | [EID-1074](https://linear.app/eidos-agi/issue/EID-1074) | Backlog | SPA/Gmail claims → Mafia |
 | M5.5 Linear/PLAN hygiene | [EID-1091](https://linear.app/eidos-agi/issue/EID-1091) | Backlog | PLAN §8 stays mirrored to Linear |
 | M5.6 Optional Rust port | (defer) | Out | Only if Python is bottleneck |
@@ -355,4 +355,6 @@ python3 scripts/smoke_ledger.py    # history + reboot
 python3 scripts/smoke_learn.py     # landmarks + learn_use
 python3 scripts/smoke_node_ids.py  # find_text≡click with hidden inputs
 python3 scripts/smoke_serve_n10.py # public TCP API N=10
+python3 scripts/run_api_suite.py   # ≥30 / 45 checks
+MAFIA_FLEET_N=10 python3 scripts/fleet_smoke.py
 ```

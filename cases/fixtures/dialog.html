@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>dialog</title></head>
+<body>
+  <h1>Dialog page</h1>
+  <button id="alert-me">Alert</button>
+  <p id="status">idle</p>
+  <script>
+    document.getElementById("alert-me").onclick = () => {
+      alert("BLOCKING-ALERT");
+      document.getElementById("status").textContent = "after-alert";
+    };
+  </script>
+</body>
+</html>

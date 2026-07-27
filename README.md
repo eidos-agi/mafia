@@ -15,7 +15,7 @@ Not “rebuild Blink.” Not bare Playwright/agent-browser. The product is **tig
 Without Knox + Hancock, agents cannot safely log in or take irreversible steps → not autonomous.  
 Without learn + session durability, every run is cold start → not compounding.
 
-SPA works (real Chromium). Optional headed attach. JSONL on `:7430`.
+SPA works (real Chromium). ARIA roles (`div[role=button]`) in snapshot. Optional headed attach. JSONL on `:7430`.
 
 ## Run
 
@@ -51,7 +51,9 @@ Every line is one op. Multi-session: pass `"session":"<id>"` (default = last ope
 | `session_label` / `session_recent` / `session_history` | usage ledger — every op tracked (secrets stripped) |
 | `session_reboot` | resume last (or named) work from ledger + jar |
 | `navigate` | go (real browser) |
-| `settle` | wait for load + short network quiet |
+| `settle` | load + networkidle; optional `text` / `selector` |
+| `wait` | text / selector / url_contains / ms |
+| `viewport` | set width×height on live session |
 | `snapshot` | semantic DOM + stable node-ids (post-JS) |
 | `read` | body innerText |
 | `find_text` / `query` / `links` | locate |
@@ -158,9 +160,23 @@ printf '%s\n' '{"op":"session_open"}' '{"op":"navigate","url":"file://…/js-ren
 
 Same *ideas* (ops, node-ids, settle). Different contract.
 
+## Verify
+
+```sh
+python3 scripts/smoke_spa.py
+python3 scripts/smoke_node_ids.py
+python3 scripts/smoke_sessions.py
+python3 scripts/smoke_ledger.py
+python3 scripts/smoke_learn.py
+python3 scripts/smoke_serve_n10.py
+python3 scripts/run_api_suite.py          # ≥30 checks
+MAFIA_SUITE_MODE=tcp python3 scripts/run_api_suite.py
+MAFIA_FLEET_N=10 python3 scripts/fleet_smoke.py
+```
+
 ## Telos
 
-See [`TELOS.md`](TELOS.md).
+See [`TELOS.md`](TELOS.md). Plan + Linear: [`PLAN.md`](PLAN.md).
 
 ## License
 

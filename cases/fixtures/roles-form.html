@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head><title>roles form</title></head>
+<body>
+  <h1>Roles Form</h1>
+  <input type="hidden" name="csrf" value="x" />
+  <div role="button" id="role-btn" aria-label="Compose">Compose</div>
+  <a role="link" href="#inbox" id="role-link">Inbox</a>
+  <input id="email" type="email" placeholder="you@example.com" />
+  <input id="pass" type="password" placeholder="password" />
+  <button id="submit">Sign in</button>
+  <div id="out"></div>
+  <script>
+    document.getElementById("role-btn").onclick = () => {
+      document.getElementById("out").textContent = "COMPOSE-ROLE-CLICKED";
+    };
+    document.getElementById("submit").onclick = () => {
+      const e = document.getElementById("email").value;
+      document.getElementById("out").textContent = "SIGNED-IN:" + e;
+    };
+    // Delayed text for wait/settle
+    setTimeout(() => {
+      const p = document.createElement("p");
+      p.id = "late";
+      p.textContent = "LATE-MARKER";
+      document.body.appendChild(p);
+    }, 400);
+  </script>
+</body>
+</html>
