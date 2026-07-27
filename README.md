@@ -46,6 +46,8 @@ Every line is one op. Multi-session: pass `"session":"<id>"` (default = last ope
 | `session_open` / `session_list` / `session_close` | live fleet unit |
 | `session_save` / `session_load` / `session_saves` | named reloadable saves (cookies + URL) |
 | `session_profiles` / `session_delete` | durable profile jars; delete save/profile |
+| `session_label` / `session_recent` / `session_history` | usage ledger — every op tracked (secrets stripped) |
+| `session_reboot` | resume last (or named) work from ledger + jar |
 | `navigate` | go (real browser) |
 | `settle` | wait for load + short network quiet |
 | `snapshot` | semantic DOM + stable node-ids (post-JS) |
@@ -80,6 +82,23 @@ Live sessions die when the process dies. **Named saves** and **profiles** put co
 {"op":"session_close","session":"…"}
 {"op":"session_open","profile":"gmail-work"}
 ```
+
+### Usage ledger + reboot (required for agent continuity)
+
+Every op is append-logged to `logs/ledger/events.jsonl` (secrets/`text`/`js` stripped). Work units roll up in `logs/ledger/work.json` by **profile / save / label**. Close auto-persists jars so a later agent can reboot.
+
+```json
+{"op":"session_open","label":"gmail-inbox-scour"}
+{"op":"navigate","url":"https://mail.google.com"}
+{"op":"session_close","session":"…"}
+
+{"op":"session_recent"}
+{"op":"session_history","work":"gmail-inbox-scour","limit":40}
+{"op":"session_reboot"}
+{"op":"session_reboot","name":"gmail-inbox-scour"}
+```
+
+`session_reboot` without a name resumes the most recently used durable work.
 
 ### Autonomy (load-bearing)
 

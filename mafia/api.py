@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from mafia import __version__
 from mafia import hancock as hancock_mod
 from mafia import knox as knox_mod
+from mafia import session_ledger
 from mafia.browser import MafiaBrowser
 
 OPS = [
@@ -24,6 +26,10 @@ OPS = [
     "session_saves",
     "session_profiles",
     "session_delete",
+    "session_label",
+    "session_recent",
+    "session_history",
+    "session_reboot",
     "navigate",
     "settle",
     "snapshot",
@@ -53,13 +59,60 @@ def _err(code: str, msg: str) -> dict[str, Any]:
 
 
 def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
-    """Returns (response, should_quit)."""
+    """Returns (response, should_quit). Every op is ledger-recorded (secrets stripped)."""
     try:
         v = json.loads(line)
     except json.JSONDecodeError as e:
         return _err("bad_json", str(e)), False
 
     op = (v.get("op") or "").strip()
+    t0 = time.time()
+    resp, should_quit = _dispatch_body(browser, v, op)
+    ms = int((time.time() - t0) * 1000)
+
+    # Bump live session op counter
+    sid = resp.get("session") or v.get("session") or browser._default_session
+    if isinstance(sid, str) and sid in browser.sessions:
+        browser.sessions[sid].op_count += 1
+
+    try:
+        profile = None
+        save = None
+        label = None
+        work = None
+        if isinstance(resp, dict):
+            profile = resp.get("profile") if isinstance(resp.get("profile"), str) else None
+            save = resp.get("save") if isinstance(resp.get("save"), str) else None
+            label = resp.get("label") if isinstance(resp.get("label"), str) else None
+            work = resp.get("work") if isinstance(resp.get("work"), str) else None
+        if isinstance(sid, str) and sid in browser.sessions:
+            s = browser.sessions[sid]
+            profile = profile or s.profile
+            save = save or s.last_save
+            label = label or s.label
+            work = work or s.work_key
+        session_ledger.record_op(
+            op=op or "unknown",
+            request=v,
+            response=resp if isinstance(resp, dict) else {"ok": False},
+            session_id=sid if isinstance(sid, str) else None,
+            work=work,
+            profile=profile,
+            save=save,
+            label=label,
+            url=resp.get("url") if isinstance(resp, dict) else None,
+            title=resp.get("title") if isinstance(resp, dict) else None,
+            ms=ms,
+        )
+    except Exception:
+        pass
+
+    return resp, should_quit
+
+
+def _dispatch_body(
+    browser: MafiaBrowser, v: dict[str, Any], op: str
+) -> tuple[dict[str, Any], bool]:
     sid = v.get("session")
 
     if op in ("ping", "hello"):
@@ -87,6 +140,7 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
     if op == "session_open":
         profile = v.get("profile")
         viewport = v.get("viewport") if isinstance(v.get("viewport"), dict) else None
+        label = v.get("label") or v.get("work")
         try:
             sess = browser.open_session(
                 session_id=v.get("id") or (None if profile else v.get("name")),
@@ -94,6 +148,7 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
                 restore_url=v.get("url") or v.get("restore_url"),
                 viewport=viewport,
                 user_agent=v.get("user_agent") or v.get("userAgent"),
+                label=str(label) if label else None,
             )
         except ValueError as e:
             return _err("bad_args", str(e)), False
@@ -102,6 +157,8 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
             "action": "session_open",
             "session": sess.id,
             "profile": sess.profile,
+            "label": sess.label,
+            "work": sess.work_key,
             "url": sess.page.url if sess.page else None,
             "session_count": len(browser.sessions),
         }, False
@@ -119,6 +176,9 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
                     "id": s.id,
                     "profile": s.profile,
                     "last_save": s.last_save,
+                    "label": s.label,
+                    "work": s.work_key,
+                    "op_count": s.op_count,
                     "url": url,
                     "title": title,
                 }
@@ -137,11 +197,23 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
         persist = v.get("persist")
         if persist is None:
             persist = True
+        # Capture identity before close (session is removed)
+        prior = browser.sessions.get(target)
+        meta = {
+            "label": prior.label if prior else None,
+            "profile": prior.profile if prior else None,
+            "save": prior.last_save if prior else None,
+            "work": prior.work_key if prior else None,
+        }
         ok = browser.close_session(target, persist=bool(persist))
         return {
             "ok": ok,
             "action": "session_close",
             "session": target,
+            "label": meta["label"],
+            "profile": meta["profile"],
+            "save": meta["save"],
+            "work": meta["work"],
             "session_count": len(browser.sessions),
         }, False
 
@@ -191,6 +263,30 @@ def dispatch(browser: MafiaBrowser, line: str) -> tuple[dict[str, Any], bool]:
             name = v.get("profile")
             is_profile = True
         return browser.delete_save(str(name), profile=is_profile), False
+
+    if op == "session_label":
+        lab = v.get("label") or v.get("name") or v.get("work")
+        if not lab:
+            return _err("bad_args", "session_label requires label"), False
+        return browser.set_label(str(lab), sid), False
+
+    if op == "session_recent":
+        return browser.recent_work(limit=int(v.get("limit") or 20)), False
+
+    if op == "session_history":
+        return browser.history(
+            work=v.get("work") or v.get("name") or v.get("label"),
+            session=sid or v.get("id"),
+            op=v.get("filter_op") or v.get("which_op"),
+            limit=int(v.get("limit") or 50),
+        ), False
+
+    if op == "session_reboot":
+        name = v.get("name") or v.get("work") or v.get("label") or v.get("id")
+        return browser.reboot(
+            str(name) if name else None,
+            session_id=v.get("session_id"),
+        ), False
 
     if op == "navigate":
         url = v.get("url") or ""

@@ -11,6 +11,7 @@ from typing import Any
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
+from mafia import session_ledger
 from mafia import sessions_store
 from mafia.snapshot import CLICK_JS, FIND_TEXT_JS, WALKER_JS
 
@@ -25,6 +26,21 @@ class Session:
     profile: str | None = None
     # Last explicit save name (metadata only)
     last_save: str | None = None
+    # Agent-facing work label (rolls into ledger + auto-save jar)
+    label: str | None = None
+    op_count: int = 0
+
+    @property
+    def work_key(self) -> str:
+        return (
+            session_ledger.work_key(
+                profile=self.profile,
+                save=self.last_save,
+                label=self.label,
+                session_id=self.id,
+            )
+            or f"live-{self.id}"
+        )
 
 
 class MafiaBrowser:
@@ -75,12 +91,14 @@ class MafiaBrowser:
         restore_url: str | None = None,
         viewport: dict[str, int] | None = None,
         user_agent: str | None = None,
+        label: str | None = None,
     ) -> Session:
         """Open an isolated BrowserContext.
 
         profile: named durable jar under logs/profiles/<name> (load if present, save on close).
         storage_state: path or dict (Playwright format) — also used by session_load.
         restore_url: navigate after open (from save meta or caller).
+        label: work label for ledger + auto-save on close (agent reboot handle).
         """
         self.start()
         assert self._browser is not None
@@ -91,6 +109,7 @@ class MafiaBrowser:
         state: str | dict[str, Any] | Path | None = storage_state
         url_from_profile: str | None = None
         prof = (profile or "").strip() or None
+        lab = (label or "").strip() or None
         if prof and state is None:
             bundle = sessions_store.profile_path(prof)
             st, meta, err = sessions_store.read_bundle(bundle)
@@ -108,7 +127,7 @@ class MafiaBrowser:
 
         ctx = self._browser.new_context(**ctx_kwargs)
         page = ctx.new_page()
-        sess = Session(id=sid, context=ctx, page=page, profile=prof)
+        sess = Session(id=sid, context=ctx, page=page, profile=prof, label=lab)
         self.sessions[sid] = sess
         self._default_session = sid
 
@@ -125,9 +144,9 @@ class MafiaBrowser:
         sess = self.sessions.pop(session_id, None)
         if not sess:
             return False
-        if persist and sess.profile:
+        if persist:
             try:
-                self._persist_session(sess, sessions_store.profile_path(sess.profile))
+                self._auto_persist(sess)
             except Exception:
                 pass
         try:
@@ -137,6 +156,53 @@ class MafiaBrowser:
         if self._default_session == session_id:
             self._default_session = next(iter(self.sessions), None)
         return True
+
+    def _auto_persist(self, sess: Session) -> dict[str, Any] | None:
+        """Persist cookies/URL so work can reboot after process death."""
+        if sess.profile:
+            info = self._persist_session(sess, sessions_store.profile_path(sess.profile))
+            session_ledger.touch_work(
+                sess.profile,
+                op="auto_persist",
+                session_id=sess.id,
+                url=info.get("url"),
+                title=info.get("title"),
+                profile=sess.profile,
+                label=sess.label,
+            )
+            return info
+        # Named save or work label → durable save jar
+        name = sess.last_save or sess.label
+        if name:
+            info = self._persist_session(sess, sessions_store.save_path(name))
+            sess.last_save = name
+            session_ledger.touch_work(
+                name,
+                op="auto_persist",
+                session_id=sess.id,
+                url=info.get("url"),
+                title=info.get("title"),
+                save=name,
+                label=sess.label,
+            )
+            return info
+        # Ephemeral live session: checkpoint under live-<id> so reboot still works
+        key = f"live-{sess.id}"
+        try:
+            info = self._persist_session(sess, sessions_store.save_path(key))
+            sess.last_save = key
+            session_ledger.touch_work(
+                key,
+                op="auto_persist",
+                session_id=sess.id,
+                url=info.get("url"),
+                title=info.get("title"),
+                save=key,
+            )
+            return info
+        except ValueError:
+            # invalid jar name — skip
+            return None
 
     def _persist_session(self, sess: Session, dir_path: Path) -> dict[str, Any]:
         state = sess.context.storage_state()
@@ -151,7 +217,164 @@ class MafiaBrowser:
             url=url,
             title=title,
             session_id=sess.id,
+            extra={
+                "label": sess.label,
+                "profile": sess.profile,
+                "last_save": sess.last_save,
+                "op_count": sess.op_count,
+            },
         )
+
+    def set_label(self, label: str, session_id: str | None = None) -> dict[str, Any]:
+        sess = self.get(session_id)
+        lab = (label or "").strip()
+        if not lab:
+            return {"ok": False, "error": "label required", "code": "bad_args", "session": sess.id}
+        sess.label = lab
+        try:
+            url = sess.page.url
+            title = sess.page.title()
+        except Exception:
+            url, title = None, None
+        entry = session_ledger.touch_work(
+            lab,
+            op="session_label",
+            session_id=sess.id,
+            url=url,
+            title=title,
+            profile=sess.profile,
+            save=sess.last_save,
+            label=lab,
+        )
+        return {
+            "ok": True,
+            "action": "session_label",
+            "session": sess.id,
+            "label": lab,
+            "work": entry.get("key"),
+            "url": url,
+            "title": title,
+        }
+
+    def reboot(
+        self,
+        name: str | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Resume prior work: load profile/save from work index or name.
+
+        If name omitted, reboots the most recently used durable work unit.
+        """
+        entry: dict[str, Any] | None = None
+        if name:
+            entry = session_ledger.get_work(name)
+            # Also accept raw profile/save names not yet in index
+            if not entry:
+                # try profile then save
+                for from_profile in (True, False):
+                    r = self.load_session(
+                        name, session_id=session_id, from_profile=from_profile
+                    )
+                    if r.get("ok"):
+                        r["action"] = "session_reboot"
+                        r["work"] = name
+                        r["rebooted_from"] = "bundle"
+                        return r
+                return {
+                    "ok": False,
+                    "error": f"no work/profile/save named {name!r}",
+                    "code": "not_found",
+                    "hint": "session_recent lists rebootable work",
+                }
+        else:
+            recent = session_ledger.list_recent(limit=50)
+            for e in recent:
+                if e.get("resume") or e.get("profile") or e.get("save") or e.get("label"):
+                    entry = e
+                    break
+            if not entry:
+                return {
+                    "ok": False,
+                    "error": "no recent work to reboot",
+                    "code": "empty",
+                    "hint": "open a labeled/profile session and use it first",
+                }
+
+        key = entry.get("key") or name
+        resume = entry.get("resume") or {}
+        kind = resume.get("kind")
+        res_name = resume.get("name") or entry.get("profile") or entry.get("save") or entry.get("label") or key
+
+        if kind == "profile" or entry.get("profile"):
+            r = self.load_session(
+                str(entry.get("profile") or res_name),
+                session_id=session_id,
+                from_profile=True,
+            )
+        else:
+            r = self.load_session(
+                str(res_name),
+                session_id=session_id,
+                from_profile=False,
+            )
+            # If save missing, try profile
+            if not r.get("ok") and entry.get("profile"):
+                r = self.load_session(
+                    str(entry["profile"]),
+                    session_id=session_id,
+                    from_profile=True,
+                )
+
+        if r.get("ok"):
+            # re-attach label for continued tracking
+            sess = self.sessions.get(r["session"])
+            if sess:
+                if entry.get("label"):
+                    sess.label = entry["label"]
+                elif key and not str(key).startswith("live"):
+                    sess.label = str(key)
+            r["action"] = "session_reboot"
+            r["work"] = key
+            r["rebooted_from"] = "work_index"
+            r["prior"] = {
+                "last_url": entry.get("last_url"),
+                "last_title": entry.get("last_title"),
+                "last_op": entry.get("last_op"),
+                "last_used_iso": entry.get("last_used_iso"),
+                "op_count": entry.get("op_count"),
+            }
+        return r
+
+    def recent_work(self, limit: int = 20) -> dict[str, Any]:
+        items = session_ledger.list_recent(limit=limit)
+        return {
+            "ok": True,
+            "work": items,
+            "count": len(items),
+            "ledger_dir": str(session_ledger.ledger_dir()),
+            "hint": 'session_reboot with name, or session_reboot alone for most recent',
+        }
+
+    def history(
+        self,
+        *,
+        work: str | None = None,
+        session: str | None = None,
+        op: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        rows = session_ledger.history(
+            work=work, session=session, op=op, limit=limit
+        )
+        return {
+            "ok": True,
+            "events": rows,
+            "count": len(rows),
+            "work": work,
+            "session": session,
+            "path": str(session_ledger.events_path()),
+        }
 
     def save_session(
         self,
@@ -179,12 +402,24 @@ class MafiaBrowser:
             sess.last_save = safe if not as_profile else sess.last_save
             if as_profile:
                 sess.profile = safe
+            session_ledger.touch_work(
+                safe,
+                op="session_save",
+                session_id=sess.id,
+                url=info.get("url"),
+                title=info.get("title"),
+                profile=sess.profile if as_profile else None,
+                save=None if as_profile else safe,
+                label=sess.label,
+            )
             return {
                 **info,
                 "ok": True,
                 "action": "session_save",
                 "kind": kind,
                 "session": sess.id,
+                "label": sess.label,
+                "work": safe,
             }
         except ValueError as e:
             return {"ok": False, "error": str(e), "code": "bad_args", "session": sess.id}
@@ -227,6 +462,9 @@ class MafiaBrowser:
             )
             if not from_profile:
                 sess.last_save = name
+            extra = meta.get("extra") if isinstance(meta.get("extra"), dict) else {}
+            if extra.get("label") and not sess.label:
+                sess.label = extra.get("label")
             return {
                 "ok": True,
                 "action": "session_load",
@@ -238,6 +476,8 @@ class MafiaBrowser:
                 "restored_url": url,
                 "saved_at": meta.get("saved_at"),
                 "path": str(path),
+                "label": sess.label,
+                "work": name,
                 "session_count": len(self.sessions),
             }
         except Exception as e:
