@@ -137,14 +137,9 @@ class MafiaBrowser:
                 "ignore_default_args": skin_mod.ignore_default_args(headed=True),
                 "accept_downloads": True,
                 "color_scheme": "dark",
-                "viewport": {"width": 1100, "height": 760},
+                # no_viewport: page tracks real OS window size so user resize reflows
+                "no_viewport": True,
             }
-            # Maximize page viewport to the filled portable/travel monitor (EID-1098).
-            if self.display_placement:
-                p_kwargs["viewport"] = {
-                    "width": max(800, self.display_placement.window_w),
-                    "height": max(600, self.display_placement.window_h),
-                }
             try:
                 self._persistent = self._pw.chromium.launch_persistent_context(**p_kwargs)
                 self._browser = self._persistent.browser
@@ -244,10 +239,16 @@ class MafiaBrowser:
         }
         if state is not None:
             ctx_kwargs["storage_state"] = state
-        if viewport:
-            ctx_kwargs["viewport"] = viewport
         if user_agent:
             ctx_kwargs["user_agent"] = user_agent
+        # Headed: never lock a fixed CSS viewport — OS window resize must reflow.
+        # Headless: fixed viewport (or caller-supplied) for deterministic layout.
+        if self.headed:
+            ctx_kwargs["no_viewport"] = True
+        elif viewport:
+            ctx_kwargs["viewport"] = viewport
+        else:
+            ctx_kwargs["viewport"] = {"width": 1280, "height": 800}
 
         # Skin host (persistent profile) owns theme + NTP extension (EID-1099).
         # browser.new_context() is extension-less "incognito" and was silently
@@ -265,7 +266,9 @@ class MafiaBrowser:
             ctx = self._persistent
             assert ctx is not None
             page = ctx.new_page()
-            if viewport:
+            # Headed persistent already no_viewport; only set fixed size if headless
+            # or caller forces viewport while not headed.
+            if viewport and not self.headed:
                 try:
                     page.set_viewport_size(
                         {
@@ -902,15 +905,27 @@ class MafiaBrowser:
         height: int,
         session_id: str | None = None,
     ) -> dict[str, Any]:
+        """Set a fixed CSS viewport (headless / agent-driven).
+
+        In headed mode this is discouraged: it re-locks the layout so OS window
+        resize no longer reflows. Prefer no_viewport (default headed).
+        """
         sess = self.get(session_id)
         try:
             sess.page.set_viewport_size({"width": int(width), "height": int(height)})
+            note = None
+            if self.headed:
+                note = (
+                    "headed: fixed viewport re-enabled — window resize will not "
+                    "reflow until you open a new session (no_viewport)"
+                )
             return {
                 "ok": True,
                 "action": "viewport",
                 "width": int(width),
                 "height": int(height),
                 "session": sess.id,
+                "note": note,
             }
         except Exception as e:
             return {"ok": False, "error": str(e), "session": sess.id}

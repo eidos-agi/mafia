@@ -83,6 +83,7 @@ class Placement:
     notes: list[str] = field(default_factory=list)
 
     def chrome_args(self) -> list[str]:
+        """Position/size only — never inject input. Chromium places itself via flags."""
         return [
             f"--window-position={self.window_x},{self.window_y}",
             f"--window-size={self.window_w},{self.window_h}",
@@ -481,17 +482,42 @@ def preferred_blob(d: DisplayInfo, *, source: str) -> dict[str, Any]:
     }
 
 
-def _window_geometry(d: DisplayInfo, *, margin: int = 0) -> tuple[int, int, int, int]:
-    """Maximize within the target display (fill its bounds).
+def _window_geometry(d: DisplayInfo, *, margin: int | None = None) -> tuple[int, int, int, int]:
+    """Place a headed window on the target display.
 
-    EID-1098: when we pick a travel-class / USB-like monitor, the window should
-    own that whole panel — not a floating 1600×1000 box. ``margin`` is optional
-    edge inset (default 0 = true fill of that monitor only, not OS fullscreen).
+    Default is a **usable floating window** (not full-panel fill): full-screen
+    placement steals keyboard/mouse focus and feels like the app hijacked input.
+
+    Env:
+      MAFIA_FILL_DISPLAY=1 — fill the panel (old EID-1098 behavior)
+      MAFIA_WINDOW_MARGIN=N — edge inset when filling (default 24)
     """
-    w = max(800, int(round(d.width)) - margin * 2)
-    h = max(600, int(round(d.height)) - margin * 2)
-    x = int(round(d.origin_x)) + margin
-    y = int(round(d.origin_y)) + margin
+    fill = os.environ.get("MAFIA_FILL_DISPLAY", "").lower() in ("1", "true", "yes")
+    if margin is None:
+        try:
+            margin = int(os.environ.get("MAFIA_WINDOW_MARGIN") or "24")
+        except ValueError:
+            margin = 24
+
+    ox = int(round(d.origin_x))
+    oy = int(round(d.origin_y))
+    dw = max(800, int(round(d.width)))
+    dh = max(600, int(round(d.height)))
+
+    if fill:
+        w = max(800, dw - margin * 2)
+        h = max(600, dh - margin * 2)
+        x = ox + margin
+        y = oy + margin
+        return x, y, w, h
+
+    # Comfortable default: ~85% of panel, capped, centered on that display
+    w = min(1400, max(960, int(dw * 0.85)))
+    h = min(900, max(700, int(dh * 0.85)))
+    w = min(w, dw - margin * 2)
+    h = min(h, dh - margin * 2)
+    x = ox + max(margin, (dw - w) // 2)
+    y = oy + max(margin, (dh - h) // 2)
     return x, y, w, h
 
 

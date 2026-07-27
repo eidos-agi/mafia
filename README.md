@@ -37,12 +37,13 @@ python3 -m mafia serve --headed
 # EID-1099: NTP pack is Manifest V3 (MV2 is rejected by modern Chromium with a modal)
 
 # Portable / USB-like monitor (headed boot)
-# If ~/eidos/mafia/settings.json has no preferred_display, Mafia suggests a
-# travel-class external (EDID diagonal ~12.5–18.5", not ultrawide), saves it,
-# and opens Chromium on that screen. Brand-agnostic; soft USB-C boost.
+# Places window via Chromium --window-position/--window-size only (no mouse grab).
+# Default: floating ~85% window on that display (does not fill panel / steal focus).
+# Headed pages use no_viewport so OS resize reflows the page.
 # python3 -m mafia.portable_display list
-# python3 -m mafia.portable_display resolve --app mafia --json
-# EIDOS_DISABLE_PORTABLE_DISPLAY=1 to skip; MAFIA_DISPLAY=<name|id> to force.
+# EIDOS_DISABLE_PORTABLE_DISPLAY=1  skip placement
+# MAFIA_FILL_DISPLAY=1              fill whole panel (aggressive; old behavior)
+# MAFIA_DISPLAY=<name|id>           force a monitor
 
 # One-shot stdio
 printf '%s\n' '{"op":"ping"}' '{"op":"session_open"}' \
