@@ -47,6 +47,12 @@ without tribal knowledge (history + recent work index + one-shot reboot).
 case: labeled session ops → session_history shows navigate/close; new process
 session_reboot restores cookies + URL for that work.
 
+### site-learning
+must: Successful surf actions become reusable site memory so the next visit is easier
+(landmarks, recipes, notes per origin) — not cold DOM thrash every time.
+case: find_text+click on fixture → learn_recall has landmark/recipe; new process
+learn_use same text clicks without rediscovering node_ids.
+
 ### knox-autonomy
 must: Agents can find/fill credentials into the session document without secrets appearing in
 API responses or logs; Touch ID remains Knox's unlock boundary.
@@ -68,6 +74,7 @@ case: multi-op script without human clicks on the page (human may only sign Hanc
 ### multi-session-api — open → green when 2 contexts isolated
 ### session-durability — open → green (`scripts/smoke_sessions.py`)
 ### session-lineage — open → green (`scripts/smoke_ledger.py`)
+### site-learning — open → green (`scripts/smoke_learn.py`)
 ### fleet-path — open (path to ~100 sessions)
 ### gmail-scour — open (acceptance on Mafia, not Chrime)
 

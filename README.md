@@ -10,8 +10,10 @@ Not “rebuild Blink.” Not bare Playwright/agent-browser. The product is **tig
 1. **Browser** — sessions, settle, snapshot (post-JS), click by node-id  
 2. **Knox** — passwords into the page; secrets never in agent JSON  
 3. **Hancock** — human must sign before consequential actions  
+4. **Learn** — site memory so the next surf reuses what worked  
 
-Without Knox + Hancock, agents cannot safely log in or take irreversible steps → not autonomous.
+Without Knox + Hancock, agents cannot safely log in or take irreversible steps → not autonomous.  
+Without learn + session durability, every run is cold start → not compounding.
 
 SPA works (real Chromium). Optional headed attach. JSONL on `:7430`.
 
@@ -99,6 +101,33 @@ Every op is append-logged to `logs/ledger/events.jsonl` (secrets/`text`/`js` str
 ```
 
 `session_reboot` without a name resumes the most recently used durable work.
+
+### Learning (next surf is easier)
+
+Successful `find_text` / `click` / `navigate` auto-write **per-origin** memory under `logs/learn/` (override `MAFIA_LEARN_DIR`). Secrets never stored. Next agent on the same site should **recall/suggest first**, not thrash the DOM cold.
+
+```json
+{"op":"navigate","url":"https://example.com"}
+{"op":"find_text","text":"More information"}
+{"op":"click","node_id":3}
+// … memory written …
+
+{"op":"learn_recall"}
+{"op":"learn_suggest"}
+{"op":"learn_use","text":"More information"}
+{"op":"learn_recipe","name":"click:More information"}
+{"op":"learn_note","note":"Footer link goes to IANA"}
+{"op":"learn_list"}
+```
+
+| op | purpose |
+|----|---------|
+| `learn_recall` | landmarks, recipes, notes, paths for current origin |
+| `learn_suggest` | ranked next actions from memory |
+| `learn_use` | find known text + click if clickable (easy path) |
+| `learn_recipe` | replay a prior successful sequence |
+| `learn_note` | agent tip for this site |
+| `learn_list` / `learn_forget` | inventory / prune |
 
 ### Autonomy (load-bearing)
 

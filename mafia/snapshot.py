@@ -58,8 +58,17 @@ CLICK_JS = r"""
 (id) => {
   const el = document.querySelector('[data-mafia-id="' + id + '"]');
   if (!el) return { ok: false, error: "no node with id " + id };
+  const text = (el.innerText || el.value || el.getAttribute("aria-label") || "")
+    .replace(/\s+/g, " ").trim().slice(0, 200);
+  const href = el.tagName.toLowerCase() === "a" ? (el.href || null) : null;
   el.click();
-  return { ok: true, node_id: id, tag: el.tagName.toLowerCase() };
+  return {
+    ok: true,
+    node_id: id,
+    tag: el.tagName.toLowerCase(),
+    text,
+    href,
+  };
 }
 """
 

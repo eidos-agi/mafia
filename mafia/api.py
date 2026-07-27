@@ -9,6 +9,7 @@ from typing import Any
 from mafia import __version__
 from mafia import hancock as hancock_mod
 from mafia import knox as knox_mod
+from mafia import learn as learn_mod
 from mafia import session_ledger
 from mafia.browser import MafiaBrowser
 
@@ -44,6 +45,13 @@ OPS = [
     "eval",
     "back",
     "forward",
+    "learn_recall",
+    "learn_suggest",
+    "learn_use",
+    "learn_recipe",
+    "learn_note",
+    "learn_list",
+    "learn_forget",
     "knox_find",
     "knox_fill",
     "knox_use",
@@ -380,6 +388,82 @@ def _dispatch_body(
 
     if op == "press":
         return browser.press(v.get("key") or "Enter", sid), False
+
+    # ---- Learn (site memory — next surf is easier) ----
+    if op == "learn_recall":
+        url = v.get("url")
+        if not url:
+            try:
+                st = browser.status(sid)
+                url = st.get("url")
+            except Exception:
+                url = None
+        return learn_mod.recall(url, origin=v.get("origin")), False
+
+    if op == "learn_suggest":
+        url = v.get("url")
+        if not url:
+            try:
+                st = browser.status(sid)
+                url = st.get("url")
+            except Exception:
+                url = None
+        return learn_mod.suggest(
+            url, origin=v.get("origin"), limit=int(v.get("limit") or 8)
+        ), False
+
+    if op == "learn_use":
+        text = v.get("text") or v.get("target") or v.get("name") or ""
+        if not text:
+            return _err("bad_args", "learn_use requires text"), False
+        click = v.get("click")
+        if click is None:
+            click = True
+        return browser.learn_use(str(text), session_id=sid, click=bool(click)), False
+
+    if op == "learn_recipe":
+        return browser.learn_recipe(
+            v.get("name"),
+            session_id=sid,
+            steps=v.get("steps") if isinstance(v.get("steps"), list) else None,
+        ), False
+
+    if op == "learn_note":
+        note = v.get("note") or v.get("text") or ""
+        url = v.get("url")
+        if not url:
+            try:
+                st = browser.status(sid)
+                url = st.get("url")
+            except Exception:
+                url = None
+        return learn_mod.add_note(url, str(note), origin=v.get("origin")), False
+
+    if op == "learn_list":
+        sites = learn_mod.list_sites()
+        return {
+            "ok": True,
+            "sites": sites,
+            "count": len(sites),
+            "dir": str(learn_mod.learn_dir()),
+        }, False
+
+    if op == "learn_forget":
+        origin = v.get("origin")
+        if not origin:
+            try:
+                st = browser.status(sid)
+                origin = learn_mod.origin_key(st.get("url"))
+            except Exception:
+                origin = None
+        if not origin:
+            return _err("bad_args", "learn_forget requires origin or live session url"), False
+        return learn_mod.forget(
+            origin=str(origin),
+            kind=v.get("kind"),
+            value=v.get("value") or v.get("text"),
+            all_memory=bool(v.get("all")),
+        ), False
 
     # ---- Knox (secrets never in response) ----
     if op == "knox_find":

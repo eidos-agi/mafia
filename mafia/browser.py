@@ -11,6 +11,7 @@ from typing import Any
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
+from mafia import learn as learn_mod
 from mafia import session_ledger
 from mafia import sessions_store
 from mafia.snapshot import CLICK_JS, FIND_TEXT_JS, WALKER_JS
@@ -29,6 +30,8 @@ class Session:
     # Agent-facing work label (rolls into ledger + auto-save jar)
     label: str | None = None
     op_count: int = 0
+    # Short-term trail for learning (last find_text query on this page)
+    last_find_query: str | None = None
 
     @property
     def work_key(self) -> str:
@@ -527,13 +530,18 @@ class MafiaBrowser:
         try:
             resp = sess.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             status = resp.status if resp else None
+            title = sess.page.title()
+            final = sess.page.url
+            learn_mod.remember_navigate(final, title)
+            sess.last_find_query = None  # new page — trail resets
             return {
                 "ok": True,
-                "url": sess.page.url,
+                "url": final,
                 "status": status,
-                "title": sess.page.title(),
+                "title": title,
                 "session": sess.id,
                 "engine": "chromium",
+                "origin": learn_mod.origin_key(final),
             }
         except Exception as e:
             return {
@@ -590,7 +598,13 @@ class MafiaBrowser:
 
     def find_text(self, q: str, session_id: str | None = None) -> list[dict[str, Any]]:
         sess = self.get(session_id)
-        return sess.page.evaluate(FIND_TEXT_JS, q)
+        matches = sess.page.evaluate(FIND_TEXT_JS, q)
+        sess.last_find_query = q if matches else sess.last_find_query
+        if matches:
+            learn_mod.remember_find(sess.page.url, q, matches)
+        elif q:
+            learn_mod.remember_miss(sess.page.url, kind="text", value=q)
+        return matches
 
     def click(self, node_id: int, session_id: str | None = None) -> dict[str, Any]:
         sess = self.get(session_id)
@@ -601,8 +615,160 @@ class MafiaBrowser:
         result["url"] = sess.page.url
         result["title"] = sess.page.title()
         result["engine"] = "chromium"
+        if result.get("ok"):
+            learn_mod.remember_click(
+                sess.page.url,
+                text=result.get("text"),
+                tag=result.get("tag"),
+                href=result.get("href"),
+                find_query=sess.last_find_query,
+            )
         return result
 
+    def learn_use(
+        self,
+        text: str,
+        *,
+        session_id: str | None = None,
+        click: bool = True,
+    ) -> dict[str, Any]:
+        """Reuse a known landmark: find text, optionally click first match.
+
+        This is the 'easier next time' path — prefer over blind thrashing.
+        """
+        sess = self.get(session_id)
+        q = (text or "").strip()
+        if not q:
+            return {"ok": False, "error": "text required", "code": "bad_args", "session": sess.id}
+        matches = self.find_text(q, sess.id)
+        if not matches:
+            learn_mod.remember_miss(sess.page.url, kind="click_text", value=q)
+            return {
+                "ok": False,
+                "action": "learn_use",
+                "error": f"no match for {q!r}",
+                "text": q,
+                "session": sess.id,
+                "url": sess.page.url,
+                "origin": learn_mod.origin_key(sess.page.url),
+            }
+        top = matches[0]
+        out: dict[str, Any] = {
+            "ok": True,
+            "action": "learn_use",
+            "text": q,
+            "matched": top,
+            "match_count": len(matches),
+            "session": sess.id,
+            "url": sess.page.url,
+            "origin": learn_mod.origin_key(sess.page.url),
+            "clicked": False,
+        }
+        can_click = bool(top.get("clickable")) or top.get("tag") in (
+            "a",
+            "button",
+            "input",
+        )
+        if click and can_click:
+            nid = top.get("node_id")
+            if nid is not None:
+                cr = self.click(int(nid), sess.id)
+                out["clicked"] = bool(cr.get("ok"))
+                out["click"] = cr
+                out["ok"] = bool(cr.get("ok"))
+                if not cr.get("ok"):
+                    out["error"] = cr.get("error")
+        elif click:
+            # found non-clickable — still useful for verification
+            out["clicked"] = False
+            out["note"] = "match found but not clickable; set click=false to only locate"
+        return out
+
+    def learn_recipe(
+        self,
+        name: str | None = None,
+        *,
+        session_id: str | None = None,
+        steps: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Run a named recipe for current origin, or provided steps."""
+        sess = self.get(session_id)
+        url = sess.page.url
+        origin = learn_mod.origin_key(url)
+        run_steps = steps
+        if not run_steps and name:
+            mem = learn_mod.recall(url)
+            for r in mem.get("recipes") or []:
+                if r.get("name") == name or name in (r.get("name") or ""):
+                    run_steps = r.get("steps") or []
+                    name = r.get("name")
+                    break
+        if not run_steps:
+            return {
+                "ok": False,
+                "error": "recipe not found — pass name or steps",
+                "code": "not_found",
+                "origin": origin,
+                "session": sess.id,
+            }
+        results = []
+        for step in run_steps:
+            sop = (step.get("op") or "").strip()
+            if sop == "find_text":
+                m = self.find_text(step.get("text") or "", sess.id)
+                results.append({"op": sop, "ok": bool(m), "count": len(m)})
+                if not m:
+                    return {
+                        "ok": False,
+                        "action": "learn_recipe",
+                        "name": name,
+                        "error": f"find_text failed: {step.get('text')}",
+                        "results": results,
+                        "session": sess.id,
+                    }
+            elif sop in ("click_text", "learn_use"):
+                r = self.learn_use(
+                    step.get("text") or "",
+                    session_id=sess.id,
+                    click=True,
+                )
+                results.append({"op": sop, "ok": r.get("ok"), "detail": r})
+                if not r.get("ok"):
+                    return {
+                        "ok": False,
+                        "action": "learn_recipe",
+                        "name": name,
+                        "error": r.get("error"),
+                        "results": results,
+                        "session": sess.id,
+                    }
+            elif sop == "navigate":
+                r = self.navigate(step.get("url") or "", sess.id)
+                results.append({"op": sop, "ok": r.get("ok")})
+                if not r.get("ok"):
+                    return {
+                        "ok": False,
+                        "action": "learn_recipe",
+                        "name": name,
+                        "error": r.get("error"),
+                        "results": results,
+                        "session": sess.id,
+                    }
+            elif sop == "settle":
+                r = self.settle(sess.id)
+                results.append({"op": sop, "ok": r.get("ok")})
+            else:
+                results.append({"op": sop, "ok": False, "error": "unsupported step"})
+        return {
+            "ok": True,
+            "action": "learn_recipe",
+            "name": name,
+            "steps_run": len(results),
+            "results": results,
+            "session": sess.id,
+            "url": sess.page.url,
+            "origin": origin,
+        }
     def eval_js(self, expr: str, session_id: str | None = None) -> dict[str, Any]:
         sess = self.get(session_id)
         try:

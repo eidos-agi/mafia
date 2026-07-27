@@ -126,10 +126,13 @@ Make the control plane trustworthy for daily agent use.
 | M2.4 Download / dialog policy | Explicit deny or capture; never block agent forever |
 | M2.5 Clean shutdown | Partial: `quit` / `stop` flushes profile jars; SIGTERM docs later |
 | M2.6 Usage ledger + reboot | ✅ every op → `logs/ledger/events.jsonl`; work index; `session_recent` / `session_history` / `session_reboot`; auto-persist on close (`scripts/smoke_ledger.py`) |
+| M2.7 Site learning | ✅ auto landmarks/recipes from find/click/nav; `learn_recall` / `suggest` / `use` / `recipe` / `note`; `scripts/smoke_learn.py` |
 
 **Exit (durability core):** open → set cookie → save/close or profile close → new process → load/open profile → cookie+URL restored. Login-wall fixture still nice-to-have for suite polish.
 
 **Exit (lineage):** agent can `session_recent` after process death and `session_reboot` the work it was doing.
+
+**Exit (learning):** second visit on same origin uses `learn_suggest` / `learn_use` instead of rediscovering node_ids from scratch.
 
 ---
 
